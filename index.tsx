@@ -154,7 +154,14 @@ const INITIAL_DATA: AssetRecord[] = [
 
 const App = () => {
   // --- Auth State ---
-  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  // Load user from localStorage to persist login session
+  const [currentUser, setCurrentUser] = useState<User | null>(() => {
+    try {
+      const savedUser = localStorage.getItem('app_session_user');
+      return savedUser ? JSON.parse(savedUser) : null;
+    } catch (e) { return null; }
+  });
+
   const [users, setUsers] = useState<User[]>(() => {
     const saved = localStorage.getItem('app_users');
     return saved ? JSON.parse(saved) : DEFAULT_USERS;
@@ -208,21 +215,23 @@ const App = () => {
 
   // --- Effects ---
   
-  // 1. Initial Load of Local Configs & Data
+  // 1. Initial Load of Local Configs & Data & Auto-Connect DB
   useEffect(() => {
     // Load API Key
     const savedKey = localStorage.getItem('user_gemini_key');
     if (savedKey) setLoginForm(prev => ({...prev, apiKey: savedKey}));
 
-    // Load DB Config
+    // Load DB Config and Auto-Connect
     const savedDb = localStorage.getItem('app_db_config');
     if (savedDb) {
-      const config = JSON.parse(savedDb);
-      setDbConfig(config);
-      setIsDbConnected(true);
-      refreshDataFromDb(config);
+      try {
+        const config = JSON.parse(savedDb);
+        setDbConfig(config);
+        setIsDbConnected(true);
+        refreshDataFromDb(config);
+      } catch (e) { console.error("Failed to load DB config", e); }
     } else {
-      // Fallback to LocalStorage if no DB
+      // Fallback to LocalStorage if no DB is configured
       try {
         const savedInv = localStorage.getItem('app_inventory');
         if (savedInv) setInventory(JSON.parse(savedInv));
@@ -260,6 +269,10 @@ const App = () => {
              ...row.data // Spread the JSONB data
         }));
         setInventory(flatAssets);
+      } else {
+         // If DB is empty, maybe we want to keep the local data or just show empty?
+         // For now, let's keep local data if DB returns nothing to avoid wiping on fresh connect
+         if (inventory.length === 0) setInventory([]);
       }
 
       // Fetch Config (Columns)
@@ -271,7 +284,11 @@ const App = () => {
       }
     } catch (e) {
       console.error("DB Sync Error:", e);
-      // Don't alert here to avoid spamming on load, just fallback visually
+      // Fallback to local storage if DB fails
+      try {
+        const savedInv = localStorage.getItem('app_inventory');
+        if (savedInv) setInventory(JSON.parse(savedInv));
+      } catch(err) {}
     } finally {
       setDbLoading(false);
     }
@@ -397,6 +414,7 @@ create policy "Public Access Config" on app_config for all using (true) with che
     const user = users.find(u => u.username.toLowerCase() === loginForm.username.toLowerCase() && u.password === loginForm.password);
     if (user) {
       setCurrentUser(user);
+      localStorage.setItem('app_session_user', JSON.stringify(user)); // Persist session
       setLoginError('');
       setActiveTab('inventory');
       if (loginForm.apiKey.trim()) localStorage.setItem('user_gemini_key', loginForm.apiKey.trim());
@@ -407,6 +425,7 @@ create policy "Public Access Config" on app_config for all using (true) with che
 
   const handleLogout = () => {
     setCurrentUser(null);
+    localStorage.removeItem('app_session_user'); // Clear session
     setLoginForm(prev => ({ ...prev, password: '' }));
   };
 
