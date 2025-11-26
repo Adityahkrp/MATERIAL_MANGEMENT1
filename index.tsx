@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from "react";
 import { createRoot } from "react-dom/client";
 import { GoogleGenAI } from "@google/genai";
@@ -48,7 +49,8 @@ import {
   Cloud,
   CloudOff,
   Copy,
-  Check
+  Check,
+  Activity
 } from "lucide-react";
 
 // --- Types ---
@@ -181,6 +183,7 @@ const App = () => {
   const [isDbConnected, setIsDbConnected] = useState(false);
   const [showDbModal, setShowDbModal] = useState(false);
   const [dbLoading, setDbLoading] = useState(false);
+  const [dbError, setDbError] = useState<string | null>(null);
 
   const [searchTerm, setSearchTerm] = useState("");
   const [showAddModal, setShowAddModal] = useState(false);
@@ -241,7 +244,43 @@ const App = () => {
     }
   }, []);
 
-  // 2. Persist to LocalStorage (Backup) AND Database
+  // 2. Real-time Subscription Setup
+  useEffect(() => {
+    if (!isDbConnected || !dbConfig) return;
+
+    const supabase = createClient(dbConfig.url, dbConfig.key);
+    
+    // Subscribe to ASSETS changes (Real-time Sync)
+    const channel = supabase
+      .channel('public:assets')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'assets' }, (payload) => {
+        // Handle Realtime Updates
+        if (payload.eventType === 'INSERT') {
+            const newItem = { id: payload.new.id, ...payload.new.data };
+            setInventory(prev => {
+                if (prev.some(i => i.id === newItem.id)) return prev; // Avoid dupe
+                return [...prev, newItem];
+            });
+        } else if (payload.eventType === 'UPDATE') {
+            const updatedItem = { id: payload.new.id, ...payload.new.data };
+            setInventory(prev => prev.map(item => item.id === updatedItem.id ? updatedItem : item));
+        } else if (payload.eventType === 'DELETE') {
+            setInventory(prev => prev.filter(item => item.id !== payload.old.id));
+        }
+      })
+      .subscribe((status) => {
+        if (status === 'SUBSCRIBED') {
+           console.log("Realtime subscription active");
+        }
+      });
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [isDbConnected, dbConfig]);
+
+
+  // 3. Persist to LocalStorage (Backup) AND Database
   useEffect(() => {
     // Always save local backup
     if (!isDbConnected) {
@@ -255,12 +294,13 @@ const App = () => {
 
   const refreshDataFromDb = async (config: DBConfig) => {
     setDbLoading(true);
+    setDbError(null);
     try {
       const supabase = createClient(config.url, config.key);
       
-      // Fetch Assets
+      // 1. Fetch Assets
       const { data: assets, error: assetError } = await supabase.from('assets').select('*');
-      if (assetError) throw assetError;
+      if (assetError) throw new Error(`Assets Sync Failed: ${assetError.message}`);
       
       if (assets && assets.length > 0) {
         // Map DB 'data' column back to flat object
@@ -269,21 +309,23 @@ const App = () => {
              ...row.data // Spread the JSONB data
         }));
         setInventory(flatAssets);
-      } else {
-         // If DB is empty, maybe we want to keep the local data or just show empty?
-         // For now, let's keep local data if DB returns nothing to avoid wiping on fresh connect
-         if (inventory.length === 0) setInventory([]);
       }
 
-      // Fetch Config (Columns)
-      const { data: configs, error: configError } = await supabase.from('app_config').select('*').eq('key', 'columns');
-      if (configError) throw configError;
+      // 2. Fetch Config (Columns & Users)
+      const { data: configs, error: configError } = await supabase.from('app_config').select('*');
+      if (configError) throw new Error(`Config Sync Failed: ${configError.message}`);
       
-      if (configs && configs.length > 0) {
-         setColumns(configs[0].value);
+      if (configs) {
+         const cols = configs.find((c: any) => c.key === 'columns');
+         if (cols) setColumns(cols.value);
+
+         const remoteUsers = configs.find((c: any) => c.key === 'users_list');
+         if (remoteUsers) setUsers(remoteUsers.value);
       }
-    } catch (e) {
+
+    } catch (e: any) {
       console.error("DB Sync Error:", e);
+      setDbError(e.message || "Unknown Connection Error");
       // Fallback to local storage if DB fails
       try {
         const savedInv = localStorage.getItem('app_inventory');
@@ -302,10 +344,15 @@ const App = () => {
     // Separate ID from Data for clean storage
     const { id, ...data } = asset;
     
-    await supabase.from('assets').upsert({ 
+    const { error } = await supabase.from('assets').upsert({ 
         id: String(id), 
         data: data 
     });
+
+    if (error) {
+       setMessages(prev => [...prev, { role: 'model', text: `Sync Error: ${error.message}` }]);
+       alert(`Failed to save to cloud: ${error.message}. Check your internet or Table Permissions.`);
+    }
   };
 
   const deleteAssetFromDb = async (id: string) => {
@@ -327,6 +374,17 @@ const App = () => {
     });
   };
 
+  const saveUsersToDb = async (newUsers: User[]) => {
+    if (!isDbConnected || !dbConfig) return;
+    const supabase = getSupabase();
+    if (!supabase) return;
+
+    await supabase.from('app_config').upsert({ 
+        key: 'users_list', 
+        value: newUsers 
+    });
+  };
+
   const handleConnectDb = async (e: React.FormEvent) => {
     e.preventDefault();
     const form = e.target as HTMLFormElement;
@@ -343,7 +401,7 @@ const App = () => {
     
     // Try to sync immediately
     await refreshDataFromDb(newConfig);
-    alert("Cloud Connection Configured! If data didn't load, make sure you ran the SQL setup script.");
+    alert("Cloud Connection Configured! The app is now attempting to sync.");
   };
 
   const handleDisconnectDb = () => {
@@ -352,31 +410,36 @@ const App = () => {
        setDbConfig(null);
        setIsDbConnected(false);
        setShowDbModal(false);
+       setDbError(null);
     }
   };
 
   const copySql = () => {
     const sql = `
--- 1. Create Assets Table (Stores your inventory)
+-- 1. Create Assets Table
 create table if not exists assets (
   id text primary key,
   data jsonb not null,
   created_at timestamp with time zone default timezone('utc'::text, now()) not null
 );
 
--- 2. Create Config Table (Stores your custom columns/settings)
+-- 2. Create Config Table
 create table if not exists app_config (
   key text primary key,
   value jsonb not null
 );
 
--- 3. Enable Row Level Security (Optional: Open for now for ease)
+-- 3. Enable RLS but allow Public Access (Simplest for this app)
 alter table assets enable row level security;
 alter table app_config enable row level security;
 
--- 4. Create Policies (Allow public access for this simple app)
-create policy "Public Access Assets" on assets for all using (true) with check (true);
-create policy "Public Access Config" on app_config for all using (true) with check (true);
+-- 4. Policies to allow ALL operations (Select, Insert, Update, Delete)
+create policy "Public Assets Access" on assets for all using (true) with check (true);
+create policy "Public Config Access" on app_config for all using (true) with check (true);
+
+-- 5. Enable Realtime (Vital for instant updates!)
+alter publication supabase_realtime add table assets;
+alter publication supabase_realtime add table app_config;
     `;
     navigator.clipboard.writeText(sql);
     setSqlCopied(true);
@@ -418,6 +481,11 @@ create policy "Public Access Config" on app_config for all using (true) with che
       setLoginError('');
       setActiveTab('inventory');
       if (loginForm.apiKey.trim()) localStorage.setItem('user_gemini_key', loginForm.apiKey.trim());
+      
+      // Attempt to refresh DB on login if connected
+      if (isDbConnected && dbConfig) {
+          refreshDataFromDb(dbConfig);
+      }
     } else {
       setLoginError('Invalid credentials.');
     }
@@ -429,25 +497,33 @@ create policy "Public Access Config" on app_config for all using (true) with che
     setLoginForm(prev => ({ ...prev, password: '' }));
   };
 
-  const handleCreateUser = (e: React.FormEvent) => {
+  const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault();
     if (users.some(u => u.username === newUserForm.username)) {
       alert("Username already exists");
       return;
     }
     const newUser: User = { ...newUserForm };
-    setUsers([...users, newUser]);
+    const updatedUsers = [...users, newUser];
+    setUsers(updatedUsers);
+    
+    if(isDbConnected) await saveUsersToDb(updatedUsers);
+    
     setNewUserForm({ username: '', password: '', role: 'viewer' });
   };
 
-  const handleDeleteUser = (username: string) => {
+  const handleDeleteUser = async (username: string) => {
     if (username === 'admin') { alert("Cannot delete Super Admin."); return; }
-    setUsers(users.filter(u => u.username !== username));
+    const updatedUsers = users.filter(u => u.username !== username);
+    setUsers(updatedUsers);
+    if(isDbConnected) await saveUsersToDb(updatedUsers);
   };
 
-  const handleUpdateRole = (username: string, newRole: UserRole) => {
+  const handleUpdateRole = async (username: string, newRole: UserRole) => {
     if (username === 'admin' && newRole !== 'superadmin') { alert("Cannot demote Super Admin."); return; }
-    setUsers(users.map(u => u.username === username ? { ...u, role: newRole } : u));
+    const updatedUsers = users.map(u => u.username === username ? { ...u, role: newRole } : u);
+    setUsers(updatedUsers);
+    if(isDbConnected) await saveUsersToDb(updatedUsers);
   };
 
   const handleInstallClick = () => {
@@ -489,6 +565,8 @@ create policy "Public Access Config" on app_config for all using (true) with che
         if (isDbConnected) await saveAssetToDb(item);
       }
       
+      // Update local state if NOT connected (if connected, realtime will handle it, or we optimistically update)
+      // For bulk import, optimistic update is safer
       setInventory(prev => [...prev, ...newItems]);
       setMessages(prev => [...prev, { role: 'model', text: `Imported ${newItems.length} records.` }]);
     };
@@ -518,6 +596,8 @@ create policy "Public Access Config" on app_config for all using (true) with che
       ...formData as AssetRecord,
       id: Date.now().toString(),
     };
+    
+    // Optimistic Update
     setInventory([...inventory, newItem]);
     
     // Sync DB
@@ -842,10 +922,15 @@ create policy "Public Access Config" on app_config for all using (true) with che
             <div className="p-4 border-b border-slate-700/50 flex justify-between items-center bg-slate-800/40">
               <h3 className="font-display font-bold text-lg text-indigo-100 flex items-center gap-2">
                 <ClipboardList className="w-5 h-5 text-indigo-400" /> Asset Registry 
-                {isDbConnected && <span className="text-[10px] bg-green-900/40 text-green-400 border border-green-500/30 px-2 py-0.5 rounded-full flex items-center gap-1"><Cloud className="w-3 h-3"/> Online</span>}
+                {isDbConnected && <span className="text-[10px] bg-green-900/40 text-green-400 border border-green-500/30 px-2 py-0.5 rounded-full flex items-center gap-1 animate-pulse"><Activity className="w-3 h-3"/> Live Sync</span>}
               </h3>
               {canEdit && <button onClick={() => setShowAddModal(true)} className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-1.5 rounded-lg transition-colors text-sm font-medium shadow-[0_0_15px_rgba(99,102,241,0.4)]"><Plus className="w-4 h-4" /> Add Asset</button>}
             </div>
+            {dbError && (
+               <div className="p-4 bg-red-500/10 border-b border-red-500/30 text-red-400 text-sm flex items-center gap-2 justify-center">
+                  <AlertTriangle className="w-4 h-4"/> Connection Error: {dbError}
+               </div>
+            )}
             {dbLoading ? (
                <div className="p-12 text-center text-indigo-400 flex flex-col items-center gap-4">
                   <RefreshCcw className="w-8 h-8 animate-spin" />
@@ -1001,7 +1086,7 @@ create policy "Public Access Config" on app_config for all using (true) with che
                </form>
              </div>
              <div className="glass-panel rounded-xl overflow-hidden border border-slate-700/50">
-               <div className="p-4 bg-slate-800/40 border-b border-slate-700"><h3 className="font-bold flex items-center gap-2 text-indigo-100"><Users className="w-5 h-5 text-indigo-400" /> User Directory</h3></div>
+               <div className="p-4 bg-slate-800/40 border-b border-slate-700"><h3 className="font-bold flex items-center gap-2 text-indigo-100"><Users className="w-5 h-5 text-indigo-400" /> User Directory {isDbConnected && <span className="text-[10px] bg-green-900/40 text-green-400 px-2 rounded">Synced</span>}</h3></div>
                <div className="overflow-x-auto">
                  <table className="w-full text-left text-sm">
                     <thead className="bg-slate-900/50 text-slate-400 text-xs uppercase tracking-wider font-semibold"><tr><th className="p-3 border-b border-slate-700">Username</th><th className="p-3 border-b border-slate-700">Access Level</th><th className="p-3 border-b border-slate-700">Upgrade Access</th><th className="p-3 border-b border-slate-700 text-right">Actions</th></tr></thead>
@@ -1081,7 +1166,17 @@ create policy "Public Access Config" on app_config for all using (true) with che
 create table if not exists app_config (
   key text primary key,
   value jsonb not null
-);`}
+);
+
+-- IMPORTANT: Enable Realtime for these tables
+alter publication supabase_realtime add table assets;
+alter publication supabase_realtime add table app_config;
+
+-- Public Access Policies
+alter table assets enable row level security;
+alter table app_config enable row level security;
+create policy "Public Assets Access" on assets for all using (true) with check (true);
+create policy "Public Config Access" on app_config for all using (true) with check (true);`}
                                 </pre>
                             </div>
                             <button 
