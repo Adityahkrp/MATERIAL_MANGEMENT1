@@ -63,8 +63,8 @@ import {
 
 // --- Configuration ---
 // REPLACE THESE VALUES TO MAKE DATABASE CONNECTION PERMANENT ACROSS DEVICES
-const HARDCODED_SUPABASE_URL = ""; 
-const HARDCODED_SUPABASE_KEY = ""; 
+const HARDCODED_SUPABASE_URL = "https://wtbdeqfvkfeekmrdkyta.supabase.co"; 
+const HARDCODED_SUPABASE_KEY = "sb_publishable_cWz6SwU8UzwlBCrH6HDGNQ__4-eOweD"; 
 
 // --- Types ---
 type AssetStatus = 'Installed' | 'Spare' | 'Planned' | 'Defective' | 'Maintenance' | 'Returned' | 'Unknown';
