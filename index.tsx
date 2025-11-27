@@ -876,19 +876,9 @@ alter publication supabase_realtime add table app_config;
                 <Lock className="w-5 h-5 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
               </div>
             </div>
-            {!HARDCODED_GEMINI_API_KEY && (
-                <div className="pt-2 border-t border-slate-300 dark:border-slate-700/50">
-                   <label className="block text-[10px] uppercase text-indigo-500 dark:text-indigo-400 font-bold mb-1.5 ml-1">Gemini API Key (Optional)</label>
-                   <div className="relative">
-                      <input type="password" value={loginForm.apiKey} onChange={e => setLoginForm({...loginForm, apiKey: e.target.value})} className="w-full bg-[var(--input-bg)] border border-slate-300 dark:border-slate-700 rounded-lg pl-10 pr-4 py-2 text-xs text-slate-600 dark:text-slate-300 focus:outline-none focus:border-indigo-400" placeholder="Enter key if hosting on GitHub Pages" />
-                      <Key className="w-4 h-4 text-slate-500 dark:text-slate-600 absolute left-3 top-1/2 -translate-y-1/2" />
-                   </div>
-                </div>
-            )}
             {loginError && <div className="text-red-500 dark:text-red-400 text-sm text-center bg-red-500/10 border border-red-500/20 p-3 rounded-lg flex items-center justify-center gap-2"><AlertTriangle className="w-4 h-4" /> {loginError}</div>}
             <button type="submit" className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-3 rounded-lg shadow-[0_0_20px_rgba(99,102,241,0.4)] transition-all flex items-center justify-center gap-2 group mt-4"><span className="group-hover:tracking-widest transition-all duration-300">AUTHENTICATE</span><ArrowRightLeft className="w-4 h-4" /></button>
           </form>
-          <div className="mt-8 text-center border-t border-slate-300 dark:border-slate-700/50 pt-4"><p className="text-[10px] text-slate-500 uppercase tracking-widest">Authorized Personnel Only</p><div className="mt-2 text-xs text-slate-500 dark:text-slate-600">Default: admin/password | staff/123 | guest/guest</div></div>
         </div>
       </div>
     );
