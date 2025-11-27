@@ -63,8 +63,8 @@ import {
 
 // --- Configuration ---
 // REPLACE THESE VALUES TO MAKE DATABASE CONNECTION PERMANENT ACROSS DEVICES
-const HARDCODED_SUPABASE_URL = "https://wtbdeqfvkfeekmrdkyta.supabase.co"; 
-const HARDCODED_SUPABASE_KEY = "sb_publishable_cWz6SwU8UzwlBCrH6HDGNQ__4-eOweD"; 
+const HARDCODED_SUPABASE_URL = ""; 
+const HARDCODED_SUPABASE_KEY = ""; 
 
 // --- Types ---
 type AssetStatus = 'Installed' | 'Spare' | 'Planned' | 'Defective' | 'Maintenance' | 'Returned' | 'Unknown';
@@ -265,7 +265,7 @@ const App = () => {
   const [newUserForm, setNewUserForm] = useState({ username: '', password: '', role: 'viewer' as UserRole });
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [messages, setMessages] = useState<Message[]>([
-    { role: 'model', text: "LogisticsDroid Online. Connected to secure database grid." }
+    { role: 'model', text: "SFMS Assistant Online. Connected to secure database grid." }
   ]);
   const [inputMessage, setInputMessage] = useState("");
   const [isThinking, setIsThinking] = useState(false);
@@ -822,7 +822,7 @@ alter publication supabase_realtime add table app_config;
         columns.forEach(col => { simplified[col.label] = item[col.id]; });
         return simplified;
       });
-      const prompt = `LogisticsDroid. Data Schema: ${visibleColumns}. Sample: ${JSON.stringify(contextData)}. User: ${userText}`;
+      const prompt = `SFMS AI Assistant. Data Schema: ${visibleColumns}. Sample: ${JSON.stringify(contextData)}. User: ${userText}`;
       const response = await ai.models.generateContent({ model: 'gemini-2.5-flash', contents: prompt });
       setMessages(prev => [...prev, { role: 'model', text: response.text || "Error." }]);
     } catch (error) {
@@ -858,7 +858,7 @@ alter publication supabase_realtime add table app_config;
               <Shield className="w-8 h-8 text-indigo-500 dark:text-indigo-400" />
             </div>
             <h1 className="text-2xl font-bold font-display tracking-wider text-slate-800 dark:text-white">SECURE<span className="text-indigo-500 dark:text-indigo-400">LOGIN</span></h1>
-            <p className="text-slate-500 dark:text-slate-400 text-sm mt-2 font-mono">Logistics Command Center</p>
+            <p className="text-slate-500 dark:text-slate-400 text-sm mt-2 font-mono">SFMS Command Center</p>
           </div>
           <form onSubmit={handleLogin} className="space-y-4">
             <div>
@@ -906,7 +906,7 @@ alter publication supabase_realtime add table app_config;
             <Cpu className="w-5 h-5 text-indigo-500 dark:text-indigo-400" />
           </div>
           <div>
-            <h1 className="text-lg font-bold font-display tracking-wider text-slate-900 dark:text-white leading-tight">GRID<span className="text-indigo-500 dark:text-indigo-400">ASSETS</span></h1>
+            <h1 className="text-lg font-bold font-display tracking-wider text-slate-900 dark:text-white leading-tight">SFMS<span className="text-indigo-500 dark:text-indigo-400">ASSETS</span></h1>
           </div>
         </div>
         
@@ -1485,7 +1485,7 @@ create policy "Public Config Access" on app_config for all using (true) with che
       {/* Chat Interface */}
       <div className={`fixed bottom-0 right-0 w-full md:w-[450px] h-[600px] transition-transform duration-500 transform ${isChatOpen ? 'translate-y-0' : 'translate-y-[110%]'} z-40 p-4`}>
         <div className="glass-panel w-full h-full rounded-2xl flex flex-col shadow-2xl border border-indigo-500/30 relative overflow-hidden bg-white/95 dark:bg-slate-900/90">
-          <div className="p-4 bg-slate-100/80 dark:bg-slate-800/80 border-b border-slate-300 dark:border-slate-700 flex justify-between items-center backdrop-blur-md"><div className="flex items-center gap-2"><Bot className="w-5 h-5 text-indigo-500 dark:text-indigo-400" /><span className="font-display font-bold text-sm tracking-wider text-slate-800 dark:text-slate-200">LOGISTICS<span className="text-indigo-500 dark:text-indigo-400">DROID</span></span></div><button onClick={() => setIsChatOpen(false)} className="text-slate-400 hover:text-slate-800 dark:hover:text-white"><X className="w-4 h-4" /></button></div>
+          <div className="p-4 bg-slate-100/80 dark:bg-slate-800/80 border-b border-slate-300 dark:border-slate-700 flex justify-between items-center backdrop-blur-md"><div className="flex items-center gap-2"><Bot className="w-5 h-5 text-indigo-500 dark:text-indigo-400" /><span className="font-display font-bold text-sm tracking-wider text-slate-800 dark:text-slate-200">SFMS<span className="text-indigo-500 dark:text-indigo-400">ASSISTANT</span></span></div><button onClick={() => setIsChatOpen(false)} className="text-slate-400 hover:text-slate-800 dark:hover:text-white"><X className="w-4 h-4" /></button></div>
           <div className="flex-1 overflow-y-auto p-4 space-y-4 scrollbar-thin">
             {messages.map((msg, i) => (<div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}><div className={`max-w-[85%] p-3 rounded-xl text-sm leading-relaxed ${msg.role === 'user' ? 'bg-indigo-600 text-white rounded-br-none shadow-lg' : 'bg-slate-200 dark:bg-slate-700/50 text-slate-800 dark:text-slate-200 rounded-bl-none border border-slate-300 dark:border-slate-600'}`}>{msg.text}</div></div>))}
             {isThinking && (<div className="flex justify-start"><div className="bg-slate-200 dark:bg-slate-700/50 p-3 rounded-lg rounded-bl-none flex gap-1 items-center"><div className="w-1.5 h-1.5 bg-indigo-500 dark:bg-indigo-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} /><div className="w-1.5 h-1.5 bg-indigo-500 dark:bg-indigo-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} /><div className="w-1.5 h-1.5 bg-indigo-500 dark:bg-indigo-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} /></div></div>)}
