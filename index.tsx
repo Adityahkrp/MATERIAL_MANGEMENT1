@@ -61,6 +61,11 @@ import {
   PanelLeftOpen
 } from "lucide-react";
 
+// --- Configuration ---
+// REPLACE THESE VALUES TO MAKE DATABASE CONNECTION PERMANENT ACROSS DEVICES
+const HARDCODED_SUPABASE_URL = ""; 
+const HARDCODED_SUPABASE_KEY = ""; 
+
 // --- Types ---
 type AssetStatus = 'Installed' | 'Spare' | 'Planned' | 'Defective' | 'Maintenance' | 'Returned' | 'Unknown';
 type FieldType = 'text' | 'number' | 'date' | 'select' | 'textarea';
@@ -306,10 +311,19 @@ const App = () => {
     if (savedKey) setLoginForm(prev => ({...prev, apiKey: savedKey}));
 
     // Load DB Config and Auto-Connect
-    const savedDb = localStorage.getItem('app_db_config');
-    if (savedDb) {
+    let config: DBConfig | null = null;
+
+    // Check hardcoded values first
+    if (HARDCODED_SUPABASE_URL && HARDCODED_SUPABASE_KEY) {
+        config = { url: HARDCODED_SUPABASE_URL, key: HARDCODED_SUPABASE_KEY };
+    } else {
+        // Fallback to local storage
+        const savedDb = localStorage.getItem('app_db_config');
+        if (savedDb) config = JSON.parse(savedDb);
+    }
+
+    if (config) {
       try {
-        const config = JSON.parse(savedDb);
         setDbConfig(config);
         setIsDbConnected(true);
         refreshDataFromDb(config);
@@ -1250,38 +1264,47 @@ alter publication supabase_realtime add table app_config;
                  </div>
                  
                  <div className="p-6 overflow-y-auto">
-                    {!isDbConnected ? (
-                        <>
-                           <div className="mb-6 bg-indigo-100 dark:bg-indigo-900/20 border border-indigo-500/30 p-4 rounded-xl text-sm text-indigo-700 dark:text-indigo-200">
-                               <p className="font-bold mb-2">Connect to Supabase (PostgreSQL)</p>
-                               <p className="text-xs text-slate-500 dark:text-slate-400 mb-2">This will enable real-time cloud sync, backups, and multi-device access.</p>
-                               <ol className="list-decimal pl-4 space-y-1 text-xs text-slate-600 dark:text-slate-300">
-                                   <li>Create a free project at <a href="https://supabase.com" target="_blank" className="text-indigo-500 dark:text-indigo-400 underline">supabase.com</a></li>
-                                   <li>Go to <strong>Project Settings &gt; API</strong></li>
-                                   <li>Copy <strong>Project URL</strong> and <strong>anon public key</strong> below</li>
-                               </ol>
-                           </div>
-                           <form onSubmit={handleConnectDb} className="space-y-4">
-                               <div>
-                                   <label className="text-xs uppercase font-bold text-slate-500 block mb-1">Project URL</label>
-                                   <input name="dbUrl" required type="url" placeholder="https://xyz.supabase.co" className="w-full bg-[var(--input-bg)] border border-slate-300 dark:border-slate-600 rounded p-2 text-slate-900 dark:text-white text-sm" />
-                               </div>
-                               <div>
-                                   <label className="text-xs uppercase font-bold text-slate-500 block mb-1">Anon Public Key</label>
-                                   <input name="dbKey" required type="password" placeholder="eyJh..." className="w-full bg-[var(--input-bg)] border border-slate-300 dark:border-slate-600 rounded p-2 text-slate-900 dark:text-white text-sm" />
-                               </div>
-                               <button type="submit" className="w-full py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded font-medium shadow-lg">Connect & Sync</button>
-                           </form>
-                        </>
-                    ) : (
-                        <div className="text-center space-y-4">
-                            <div className="w-16 h-16 bg-green-500/20 rounded-full flex items-center justify-center mx-auto text-green-500 dark:text-green-400"><Cloud className="w-8 h-8"/></div>
-                            <div>
-                                <h3 className="text-lg font-bold text-slate-900 dark:text-white">Cloud Connected</h3>
-                                <p className="text-sm text-slate-500 dark:text-slate-400">Your data is syncing with Supabase.</p>
-                            </div>
-                            <button onClick={handleDisconnectDb} className="px-4 py-2 border border-red-500/40 text-red-500 dark:text-red-400 hover:bg-red-500/10 rounded-lg text-sm">Disconnect</button>
+                    {(HARDCODED_SUPABASE_URL && HARDCODED_SUPABASE_KEY) ? (
+                        <div className="mb-6 bg-green-500/10 border border-green-500/30 p-4 rounded-xl text-center">
+                            <div className="w-12 h-12 bg-green-500/20 rounded-full flex items-center justify-center mx-auto mb-2"><Cloud className="w-6 h-6 text-green-500 dark:text-green-400"/></div>
+                            <p className="text-green-700 dark:text-green-400 font-bold">Database Configured in Code</p>
+                            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">Using credentials hardcoded in index.tsx</p>
+                            {isDbConnected && <div className="mt-2 text-xs font-mono text-slate-400">Status: Connected</div>}
                         </div>
+                    ) : (
+                        !isDbConnected ? (
+                            <>
+                            <div className="mb-6 bg-indigo-100 dark:bg-indigo-900/20 border border-indigo-500/30 p-4 rounded-xl text-sm text-indigo-700 dark:text-indigo-200">
+                                <p className="font-bold mb-2">Connect to Supabase (PostgreSQL)</p>
+                                <p className="text-xs text-slate-500 dark:text-slate-400 mb-2">This will enable real-time cloud sync, backups, and multi-device access.</p>
+                                <ol className="list-decimal pl-4 space-y-1 text-xs text-slate-600 dark:text-slate-300">
+                                    <li>Create a free project at <a href="https://supabase.com" target="_blank" className="text-indigo-500 dark:text-indigo-400 underline">supabase.com</a></li>
+                                    <li>Go to <strong>Project Settings &gt; API</strong></li>
+                                    <li>Copy <strong>Project URL</strong> and <strong>anon public key</strong> below</li>
+                                </ol>
+                            </div>
+                            <form onSubmit={handleConnectDb} className="space-y-4">
+                                <div>
+                                    <label className="text-xs uppercase font-bold text-slate-500 block mb-1">Project URL</label>
+                                    <input name="dbUrl" required type="url" placeholder="https://xyz.supabase.co" className="w-full bg-[var(--input-bg)] border border-slate-300 dark:border-slate-600 rounded p-2 text-slate-900 dark:text-white text-sm" />
+                                </div>
+                                <div>
+                                    <label className="text-xs uppercase font-bold text-slate-500 block mb-1">Anon Public Key</label>
+                                    <input name="dbKey" required type="password" placeholder="eyJh..." className="w-full bg-[var(--input-bg)] border border-slate-300 dark:border-slate-600 rounded p-2 text-slate-900 dark:text-white text-sm" />
+                                </div>
+                                <button type="submit" className="w-full py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded font-medium shadow-lg">Connect & Sync</button>
+                            </form>
+                            </>
+                        ) : (
+                            <div className="text-center space-y-4">
+                                <div className="w-16 h-16 bg-green-500/20 rounded-full flex items-center justify-center mx-auto text-green-500 dark:text-green-400"><Cloud className="w-8 h-8"/></div>
+                                <div>
+                                    <h3 className="text-lg font-bold text-slate-900 dark:text-white">Cloud Connected</h3>
+                                    <p className="text-sm text-slate-500 dark:text-slate-400">Your data is syncing with Supabase.</p>
+                                </div>
+                                <button onClick={handleDisconnectDb} className="px-4 py-2 border border-red-500/40 text-red-500 dark:text-red-400 hover:bg-red-500/10 rounded-lg text-sm">Disconnect</button>
+                            </div>
+                        )
                     )}
                     
                     <div className="mt-8 pt-6 border-t border-slate-300 dark:border-slate-700">
