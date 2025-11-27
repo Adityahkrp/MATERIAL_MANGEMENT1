@@ -58,14 +58,15 @@ import {
   ChevronRight,
   MoreVertical,
   PanelLeftClose,
-  PanelLeftOpen
+  PanelLeftOpen,
+  Pencil
 } from "lucide-react";
 
 // --- Configuration ---
 // REPLACE THESE VALUES TO MAKE CONNECTION PERMANENT ACROSS DEVICES
-const HARDCODED_SUPABASE_URL = "https://wtbdeqfvkfeekmrdkyta.supabase.co"; 
-const HARDCODED_SUPABASE_KEY = "sb_publishable_cWz6SwU8UzwlBCrH6HDGNQ__4-eOweD"; 
-const HARDCODED_GEMINI_API_KEY = "AIzaSyDQX6FH_I1VYXNvd0-V7lIj9pOxIPxA8GI"; // PASTE YOUR GEMINI API KEY HERE
+const HARDCODED_SUPABASE_URL = ""; 
+const HARDCODED_SUPABASE_KEY = ""; 
+const HARDCODED_GEMINI_API_KEY = ""; // PASTE YOUR GEMINI API KEY HERE
 
 // --- Types ---
 type AssetStatus = 'Installed' | 'Spare' | 'Planned' | 'Defective' | 'Maintenance' | 'Returned' | 'Unknown';
@@ -255,9 +256,12 @@ const App = () => {
 
   const [searchTerm, setSearchTerm] = useState("");
   const [showAddModal, setShowAddModal] = useState(false);
-  const [showInstallModal, setShowInstallModal] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
   const [showCustomizeModal, setShowCustomizeModal] = useState(false);
   const [statusModalItem, setStatusModalItem] = useState<AssetRecord | null>(null);
+  const [statusDateOverride, setStatusDateOverride] = useState(""); // For "Installed Date" override
+  const [pendingStatus, setPendingStatus] = useState<string | null>(null); // To store status while picking date
+
   const [activeKPI, setActiveKPI] = useState<string | null>(null);
   const [activeEngineer, setActiveEngineer] = useState<string | null>(null);
   const [isChatOpen, setIsChatOpen] = useState(false);
@@ -266,15 +270,17 @@ const App = () => {
   const [newUserForm, setNewUserForm] = useState({ username: '', password: '', role: 'viewer' as UserRole });
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [messages, setMessages] = useState<Message[]>([
-    { role: 'model', text: "SFMS Assistant Online. Connected to secure database grid." }
+    { role: 'model', text: "SFMS AI Online. Accessing Grid Assets..." }
   ]);
   const [inputMessage, setInputMessage] = useState("");
   const [isThinking, setIsThinking] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const [formData, setFormData] = useState<Partial<AssetRecord>>({});
+  const [editFormData, setEditFormData] = useState<Partial<AssetRecord>>({});
   const [sqlCopied, setSqlCopied] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false); // For Desktop Collapse
+  const [showInstallModal, setShowInstallModal] = useState(false);
 
   // Theme State
   const [theme, setTheme] = useState<Theme>(() => {
@@ -284,7 +290,12 @@ const App = () => {
   });
 
   // --- Permissions Check ---
-  const canEdit = currentUser && ['superadmin', 'editor'].includes(currentUser.role);
+  // Editor: Can Add, Import, Change Status. CANNOT Delete, CANNOT Full Edit.
+  // Superadmin: Can do ALL.
+  const canAdd = currentUser && ['superadmin', 'editor'].includes(currentUser.role);
+  const canDelete = currentUser && currentUser.role === 'superadmin';
+  const canFullEdit = currentUser && currentUser.role === 'superadmin';
+  const canChangeStatus = currentUser && ['superadmin', 'editor'].includes(currentUser.role);
   const canManageUsers = currentUser && currentUser.role === 'superadmin';
 
   // --- DB Client Helper ---
@@ -599,7 +610,7 @@ alter publication supabase_realtime add table app_config;
   };
   
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (!canEdit) return;
+    if (!canAdd) return;
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -649,7 +660,7 @@ alter publication supabase_realtime add table app_config;
 
   const handleAddItem = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!canEdit) return;
+    if (!canAdd) return;
     const newItem: AssetRecord = {
       ...formData as AssetRecord,
       id: Date.now().toString(),
@@ -659,18 +670,51 @@ alter publication supabase_realtime add table app_config;
     setShowAddModal(false);
   };
 
-  const handleDeleteItem = async (id: string) => {
-    if (!canEdit) return;
-    setInventory(inventory.filter(a => a.id !== id));
-    if (isDbConnected) await deleteAssetFromDb(id);
+  const handleUpdateItem = async (e: React.FormEvent) => {
+      e.preventDefault();
+      if(!canFullEdit) return;
+      if(!editFormData.id) return;
+      
+      const updatedItem = { ...editFormData } as AssetRecord;
+      setInventory(prev => prev.map(item => item.id === updatedItem.id ? updatedItem : item));
+      if (isDbConnected) await saveAssetToDb(updatedItem);
+      setShowEditModal(false);
   };
 
-  const handleQuickStatusUpdate = async (newStatus: string) => {
-    if (!canEdit) return;
+  const handleDeleteItem = async (id: string) => {
+    if (!canDelete) return; // Strict Check
+    if(confirm("Are you sure you want to delete this asset?")) {
+        setInventory(inventory.filter(a => a.id !== id));
+        if (isDbConnected) await deleteAssetFromDb(id);
+    }
+  };
+
+  const initiateQuickStatusUpdate = (status: string) => {
+      if(status === 'Installed') {
+          // If installing, ask for date
+          setPendingStatus(status);
+          setStatusDateOverride(new Date().toISOString().split('T')[0]);
+      } else {
+          // Otherwise update immediately
+          handleQuickStatusUpdate(status);
+      }
+  };
+
+  const handleQuickStatusUpdate = async (newStatus: string, dateOverride?: string) => {
+    if (!canChangeStatus) return;
     if (!statusModalItem) return;
+    
     const updatedInv = inventory.map(item => {
         if (item.id === statusModalItem.id) {
-            const updated = { ...item, status: newStatus };
+            const updated: AssetRecord = { ...item, status: newStatus };
+            // If we have a date override (e.g. installation date), update the main date field
+            if(dateOverride) {
+                updated.date = dateOverride;
+                // Also update 'plannedDate' if it exists in schema to reflect installation? 
+                // Or maybe create a 'installationDate' field if it exists. 
+                // For now, updating the primary 'date' to reflect the latest status action date is standard.
+                if(updated.hasOwnProperty('plannedDate')) updated.plannedDate = dateOverride; 
+            }
             if (isDbConnected) saveAssetToDb(updated);
             return updated;
         }
@@ -678,10 +722,22 @@ alter publication supabase_realtime add table app_config;
     });
     setInventory(updatedInv);
     setStatusModalItem(null);
+    setPendingStatus(null);
+    setStatusDateOverride("");
+  };
+
+  const openEditModal = (item: AssetRecord) => {
+      if(!canFullEdit) return;
+      setEditFormData({...item});
+      setShowEditModal(true);
   };
 
   const handleInputChange = (field: string, value: string | number) => {
     setFormData(prev => ({ ...prev, [field]: value }));
+  };
+  
+  const handleEditInputChange = (field: string, value: string | number) => {
+    setEditFormData(prev => ({ ...prev, [field]: value }));
   };
 
   // --- Column Customization Handlers ---
@@ -994,7 +1050,7 @@ alter publication supabase_realtime add table app_config;
                         <Settings className="w-4 h-4" /><span>Fields</span>
                     </button>
                  )}
-                 {canEdit && (
+                 {canAdd && (
                     <label className="flex-1 md:flex-none flex items-center justify-center gap-2 px-4 py-2.5 bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 rounded-xl cursor-pointer transition-colors border border-slate-400 dark:border-slate-600 hover:border-indigo-400 text-xs font-mono uppercase tracking-wide text-slate-600 dark:text-slate-300">
                         <FileSpreadsheet className="w-4 h-4 text-emerald-500 dark:text-emerald-400" /><span>Import</span>
                         <input type="file" accept=".csv,.txt" onChange={handleFileUpload} className="hidden" />
@@ -1035,7 +1091,7 @@ alter publication supabase_realtime add table app_config;
                   <LayoutDashboard className="w-5 h-5 text-indigo-500 dark:text-indigo-400" /> Asset Registry 
                   {isDbConnected && <span className="text-[10px] bg-green-100 dark:bg-green-900/40 text-green-600 dark:text-green-400 border border-green-500/30 px-2 py-0.5 rounded-full flex items-center gap-1 animate-pulse"><Activity className="w-3 h-3"/> Live Sync</span>}
                 </h3>
-                {canEdit && <button onClick={() => setShowAddModal(true)} className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-xl transition-colors text-sm font-medium shadow-[0_0_15px_rgba(99,102,241,0.4)]"><Plus className="w-4 h-4" /> Add Asset</button>}
+                {canAdd && <button onClick={() => setShowAddModal(true)} className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-xl transition-colors text-sm font-medium shadow-[0_0_15px_rgba(99,102,241,0.4)]"><Plus className="w-4 h-4" /> Add Asset</button>}
               </div>
               {dbError && (
                  <div className="p-4 bg-red-500/10 border-b border-red-500/30 text-red-500 dark:text-red-400 text-sm flex items-center gap-2 justify-center">
@@ -1053,7 +1109,7 @@ alter publication supabase_realtime add table app_config;
                       <thead className="bg-slate-200/50 dark:bg-slate-900/50 text-slate-500 dark:text-slate-400 text-xs uppercase tracking-wider font-semibold">
                       <tr>
                           {columns.map(col => <th key={col.id} className={`p-4 border-b border-slate-300 dark:border-slate-700 whitespace-nowrap ${col.width || ''}`}>{col.label}</th>)}
-                          {canEdit && <th className="p-4 border-b border-slate-300 dark:border-slate-700 text-right">Action</th>}
+                          {(canChangeStatus || canFullEdit || canDelete) && <th className="p-4 border-b border-slate-300 dark:border-slate-700 text-right">Action</th>}
                       </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-300/50 dark:divide-slate-700/30">
@@ -1070,17 +1126,24 @@ alter publication supabase_realtime add table app_config;
                               )}
                               </td>
                           ))}
-                          {canEdit && (
+                          {(canChangeStatus || canFullEdit || canDelete) && (
                               <td className="p-4 text-right">
                               <div className="flex justify-end gap-2">
-                                  <button onClick={() => setStatusModalItem(item)} className="p-2 text-slate-400 hover:text-indigo-500 dark:hover:text-indigo-400 hover:bg-indigo-500/10 rounded-lg transition-colors" title="Update Status"><ArrowRightLeft className="w-4 h-4" /></button>
-                                  <button onClick={() => handleDeleteItem(item.id)} className="p-2 text-slate-400 hover:text-red-500 dark:hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors" title="Delete Item"><Trash2 className="w-4 h-4" /></button>
+                                  {canChangeStatus && (
+                                    <button onClick={() => setStatusModalItem(item)} className="p-2 text-slate-400 hover:text-indigo-500 dark:hover:text-indigo-400 hover:bg-indigo-500/10 rounded-lg transition-colors" title="Update Status"><ArrowRightLeft className="w-4 h-4" /></button>
+                                  )}
+                                  {canFullEdit && (
+                                     <button onClick={() => openEditModal(item)} className="p-2 text-slate-400 hover:text-blue-500 dark:hover:text-blue-400 hover:bg-blue-500/10 rounded-lg transition-colors" title="Edit Full Record"><Pencil className="w-4 h-4" /></button>
+                                  )}
+                                  {canDelete && (
+                                    <button onClick={() => handleDeleteItem(item.id)} className="p-2 text-slate-400 hover:text-red-500 dark:hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors" title="Delete Item"><Trash2 className="w-4 h-4" /></button>
+                                  )}
                               </div>
                               </td>
                           )}
                           </tr>
                       ))}
-                      {filteredInventory.length === 0 && <tr><td colSpan={columns.length + (canEdit ? 1 : 0)} className="p-12 text-center text-slate-500">No assets found matching your search.</td></tr>}
+                      {filteredInventory.length === 0 && <tr><td colSpan={columns.length + 1} className="p-12 text-center text-slate-500">No assets found matching your search.</td></tr>}
                       </tbody>
                   </table>
                   </div>
@@ -1435,39 +1498,95 @@ create policy "Public Config Access" on app_config for all using (true) with che
       )}
 
       {/* QUICK STATUS UPDATE MODAL */}
-      {statusModalItem && canEdit && (
+      {statusModalItem && canChangeStatus && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[70] flex items-center justify-center p-4">
           <div className="glass-panel p-6 rounded-2xl w-full max-w-sm border border-indigo-500/30">
               <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-4">Update Status</h3>
-              <p className="text-slate-500 dark:text-slate-400 text-sm mb-6">Select new status for item <span className="text-slate-800 dark:text-white font-mono">{statusModalItem.assetId || 'Unknown'}</span>:</p>
-              <div className="grid grid-cols-1 gap-3">
-                  {['Installed', 'Spare', 'Returned'].map(status => (<button key={status} onClick={() => handleQuickStatusUpdate(status)} className={`p-3 rounded-lg border text-left font-medium transition-all flex items-center justify-between group ${getStatusColor(status)} hover:bg-white/5`}>{status}<div className={`w-3 h-3 rounded-full ${getStatusColor(status).split(' ')[0].replace('/20', '')}`} /></button>))}
-                  {columns.find(c => c.id === 'status')?.options?.filter(o => !['Installed', 'Spare', 'Returned'].includes(o)).map(status => (<button key={status} onClick={() => handleQuickStatusUpdate(status)} className="p-3 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800/50 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 text-left text-sm">{status}</button>))}
-              </div>
-              <button onClick={() => setStatusModalItem(null)} className="mt-6 w-full py-2 text-slate-400 hover:text-white text-sm">Cancel</button>
+              
+              {!pendingStatus ? (
+                  <>
+                    <p className="text-slate-500 dark:text-slate-400 text-sm mb-6">Select new status for item <span className="text-slate-800 dark:text-white font-mono">{statusModalItem.assetId || 'Unknown'}</span>:</p>
+                    <div className="grid grid-cols-1 gap-3">
+                        {['Installed', 'Spare', 'Returned'].map(status => (<button key={status} onClick={() => initiateQuickStatusUpdate(status)} className={`p-3 rounded-lg border text-left font-medium transition-all flex items-center justify-between group ${getStatusColor(status)} hover:bg-white/5`}>{status}<div className={`w-3 h-3 rounded-full ${getStatusColor(status).split(' ')[0].replace('/20', '')}`} /></button>))}
+                        {columns.find(c => c.id === 'status')?.options?.filter(o => !['Installed', 'Spare', 'Returned'].includes(o)).map(status => (<button key={status} onClick={() => initiateQuickStatusUpdate(status)} className="p-3 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800/50 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 text-left text-sm">{status}</button>))}
+                    </div>
+                  </>
+              ) : (
+                  <div className="space-y-4">
+                      <div className="bg-green-500/10 border border-green-500/30 p-4 rounded-xl">
+                          <p className="text-green-600 dark:text-green-400 text-sm font-bold flex items-center gap-2"><CheckCircle2 className="w-4 h-4"/> Confirm Installation</p>
+                      </div>
+                      <div>
+                          <label className="text-xs uppercase font-bold text-slate-500 block mb-1">Installation Date</label>
+                          <input type="date" value={statusDateOverride} onChange={(e) => setStatusDateOverride(e.target.value)} className="w-full bg-[var(--input-bg)] border border-slate-300 dark:border-slate-600 rounded-lg px-4 py-2 text-slate-900 dark:text-white" />
+                      </div>
+                      <button onClick={() => handleQuickStatusUpdate('Installed', statusDateOverride)} className="w-full py-2 bg-green-600 text-white rounded-lg font-bold">Confirm & Install</button>
+                      <button onClick={() => setPendingStatus(null)} className="w-full py-2 text-slate-500 hover:text-slate-800 dark:hover:text-slate-300 text-sm">Back</button>
+                  </div>
+              )}
+              
+              {!pendingStatus && <button onClick={() => setStatusModalItem(null)} className="mt-6 w-full py-2 text-slate-400 hover:text-white text-sm">Cancel</button>}
           </div>
         </div>
       )}
 
+      {/* FULL EDIT MODAL (SUPER ADMIN) */}
+      {showEditModal && canFullEdit && editFormData.id && (
+         <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+             <div className="glass-panel p-6 rounded-2xl w-full max-w-2xl max-h-[90vh] flex flex-col border border-indigo-500/30">
+                 <div className="flex justify-between items-center mb-6 border-b border-slate-300 dark:border-slate-700 pb-4 shrink-0">
+                     <h2 className="text-xl font-display font-bold text-slate-900 dark:text-white flex items-center gap-2"><Pencil className="text-indigo-500 dark:text-indigo-400" /> Edit Record Details</h2>
+                     <button onClick={() => setShowEditModal(false)} className="text-slate-400 hover:text-slate-800 dark:hover:text-white"><X /></button>
+                 </div>
+                 <form onSubmit={handleUpdateItem} className="flex-1 overflow-y-auto pr-2">
+                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                         {columns.map(col => (
+                             <div key={col.id} className={col.type === 'textarea' ? 'md:col-span-2' : ''}>
+                                 <label className="block text-xs uppercase text-slate-500 font-bold mb-1">{col.label}</label>
+                                 {col.type === 'select' ? (
+                                     <select className="w-full bg-[var(--input-bg)] border border-slate-300 dark:border-slate-600 rounded-lg px-4 py-2 text-slate-900 dark:text-white focus:outline-none focus:border-indigo-400 appearance-none" value={editFormData[col.id] || ''} onChange={e => handleEditInputChange(col.id, e.target.value)}><option value="">Select {col.label}...</option>{col.options?.map(opt => (<option key={opt} value={opt}>{opt}</option>))}</select>
+                                 ) : col.type === 'textarea' ? (
+                                     <textarea rows={3} className="w-full bg-[var(--input-bg)] border border-slate-300 dark:border-slate-600 rounded-lg px-4 py-2 text-slate-900 dark:text-white focus:outline-none focus:border-indigo-400" value={editFormData[col.id] || ''} onChange={e => handleEditInputChange(col.id, e.target.value)} />
+                                 ) : (
+                                     <input type={col.type === 'date' ? 'date' : col.type === 'number' ? 'number' : 'text'} className="w-full bg-[var(--input-bg)] border border-slate-300 dark:border-slate-600 rounded-lg px-4 py-2 text-slate-900 dark:text-white focus:outline-none focus:border-indigo-400" value={editFormData[col.id] || ''} onChange={e => handleEditInputChange(col.id, e.target.value)} />
+                                 )}
+                             </div>
+                         ))}
+                     </div>
+                     <div className="flex gap-3 pt-6 mt-4 border-t border-slate-300 dark:border-slate-700 sticky bottom-0 bg-slate-900/0">
+                         <button type="button" onClick={() => setShowEditModal(false)} className="flex-1 px-4 py-2 rounded-lg border border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors">Cancel</button>
+                         <button type="submit" className="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-lg font-medium transition-all shadow-[0_0_15px_rgba(99,102,241,0.3)]">Update Asset</button>
+                     </div>
+                 </form>
+             </div>
+         </div>
+      )}
+
       {/* Add Item Modal */}
-      {showAddModal && canEdit && (
+      {showAddModal && canAdd && (
         <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="glass-panel p-6 rounded-2xl w-full max-w-2xl max-h-[90vh] flex flex-col border border-indigo-500/30 shadow-[0_0_50px_rgba(99,102,241,0.2)]">
              <div className="flex justify-between items-center mb-6 border-b border-slate-300 dark:border-slate-700 pb-4 shrink-0"><h2 className="text-xl font-display font-bold text-slate-900 dark:text-white flex items-center gap-2"><Plus className="text-indigo-500 dark:text-indigo-400" /> New Asset Entry</h2><button onClick={() => setShowAddModal(false)} className="text-slate-400 hover:text-slate-800 dark:hover:text-white"><X /></button></div>
              <form onSubmit={handleAddItem} className="flex-1 overflow-y-auto pr-2">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                 {columns.map(col => (
-                   <div key={col.id} className={col.type === 'textarea' ? 'md:col-span-2' : ''}>
-                      <label className="block text-xs uppercase text-slate-500 font-bold mb-1">{col.label}</label>
-                      {col.type === 'select' ? (
-                        <select className="w-full bg-[var(--input-bg)] border border-slate-300 dark:border-slate-600 rounded-lg px-4 py-2 text-slate-900 dark:text-white focus:outline-none focus:border-indigo-400 appearance-none" value={formData[col.id] || ''} onChange={e => handleInputChange(col.id, e.target.value)}><option value="">Select {col.label}...</option>{col.options?.map(opt => (<option key={opt} value={opt}>{opt}</option>))}</select>
-                      ) : col.type === 'textarea' ? (
-                        <textarea rows={3} className="w-full bg-[var(--input-bg)] border border-slate-300 dark:border-slate-600 rounded-lg px-4 py-2 text-slate-900 dark:text-white focus:outline-none focus:border-indigo-400" value={formData[col.id] || ''} onChange={e => handleInputChange(col.id, e.target.value)} />
-                      ) : (
-                        <input type={col.type === 'date' ? 'date' : col.type === 'number' ? 'number' : 'text'} className="w-full bg-[var(--input-bg)] border border-slate-300 dark:border-slate-600 rounded-lg px-4 py-2 text-slate-900 dark:text-white focus:outline-none focus:border-indigo-400" value={formData[col.id] || ''} onChange={e => handleInputChange(col.id, e.target.value)} placeholder={`Enter ${col.label}`} />
-                      )}
-                   </div>
-                 ))}
+                 {columns.map(col => {
+                     // Hide date columns in Add Modal if they are status-dependent
+                     if(['plannedDate', 'replacementDate', 'date'].includes(col.id) && col.type === 'date') return null;
+                     
+                     return (
+                       <div key={col.id} className={col.type === 'textarea' ? 'md:col-span-2' : ''}>
+                          <label className="block text-xs uppercase text-slate-500 font-bold mb-1">{col.label}</label>
+                          {col.type === 'select' ? (
+                            <select className="w-full bg-[var(--input-bg)] border border-slate-300 dark:border-slate-600 rounded-lg px-4 py-2 text-slate-900 dark:text-white focus:outline-none focus:border-indigo-400 appearance-none" value={formData[col.id] || ''} onChange={e => handleInputChange(col.id, e.target.value)}><option value="">Select {col.label}...</option>{col.options?.map(opt => (<option key={opt} value={opt}>{opt}</option>))}</select>
+                          ) : col.type === 'textarea' ? (
+                            <textarea rows={3} className="w-full bg-[var(--input-bg)] border border-slate-300 dark:border-slate-600 rounded-lg px-4 py-2 text-slate-900 dark:text-white focus:outline-none focus:border-indigo-400" value={formData[col.id] || ''} onChange={e => handleInputChange(col.id, e.target.value)} />
+                          ) : (
+                            <input type={col.type === 'date' ? 'date' : col.type === 'number' ? 'number' : 'text'} className="w-full bg-[var(--input-bg)] border border-slate-300 dark:border-slate-600 rounded-lg px-4 py-2 text-slate-900 dark:text-white focus:outline-none focus:border-indigo-400" value={formData[col.id] || ''} onChange={e => handleInputChange(col.id, e.target.value)} placeholder={`Enter ${col.label}`} />
+                          )}
+                       </div>
+                     );
+                 })}
+                 {/* Explicitly add entry date if needed, but keeping it hidden or auto-set as per request */}
               </div>
               <div className="flex gap-3 pt-6 mt-4 border-t border-slate-300 dark:border-slate-700 sticky bottom-0 bg-slate-900/0"><button type="button" onClick={() => setShowAddModal(false)} className="flex-1 px-4 py-2 rounded-lg border border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors">Cancel</button><button type="submit" className="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-lg font-medium transition-all shadow-[0_0_15px_rgba(99,102,241,0.3)]">Save Record</button></div>
             </form>
