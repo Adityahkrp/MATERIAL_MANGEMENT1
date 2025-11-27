@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from "react";
 import { createRoot } from "react-dom/client";
 import { GoogleGenAI } from "@google/genai";
@@ -33,7 +32,7 @@ import {
   List,
   Type,
   BarChart3,
-  PieChart,
+  PieChart as PieChartIcon,
   CalendarRange,
   FileDown,
   Lock,
@@ -50,13 +49,23 @@ import {
   CloudOff,
   Copy,
   Check,
-  Activity
+  Activity,
+  Menu,
+  LayoutDashboard,
+  Sun,
+  Moon,
+  ChevronLeft,
+  ChevronRight,
+  MoreVertical,
+  PanelLeftClose,
+  PanelLeftOpen
 } from "lucide-react";
 
 // --- Types ---
 type AssetStatus = 'Installed' | 'Spare' | 'Planned' | 'Defective' | 'Maintenance' | 'Returned' | 'Unknown';
 type FieldType = 'text' | 'number' | 'date' | 'select' | 'textarea';
 type UserRole = 'superadmin' | 'editor' | 'viewer';
+type Theme = 'light' | 'dark';
 
 interface User {
   username: string;
@@ -95,26 +104,48 @@ const DEFAULT_USERS: User[] = [
   { username: 'guest', password: 'guest', role: 'viewer' }
 ];
 
+const STATUS_COLORS_HEX: Record<string, string> = {
+  'Installed': '#4ade80',   // green-400
+  'Spare': '#60a5fa',       // blue-400
+  'Returned': '#c084fc',    // purple-400
+  'Planned': '#facc15',     // yellow-400
+  'Defective': '#f87171',   // red-400
+  'Maintenance': '#fb923c', // orange-400
+  'Unknown': '#94a3b8'      // slate-400
+};
+
 // --- Helper Functions ---
 const getStatusColor = (status: string) => {
   if (!status) return 'bg-slate-700 text-slate-400';
   
   const s = status.toLowerCase();
-  if (s.includes('install') || s.includes('deploy') || s.includes('active')) return 'bg-green-500/20 text-green-400 border-green-500/50';
-  if (s.includes('return')) return 'bg-purple-500/20 text-purple-400 border-purple-500/50';
-  if (s.includes('spare') || s.includes('stock') || s.includes('inventory')) return 'bg-blue-500/20 text-blue-400 border-blue-500/50';
-  if (s.includes('plan') || s.includes('order') || s.includes('req')) return 'bg-yellow-500/20 text-yellow-400 border-yellow-500/50';
-  if (s.includes('defect') || s.includes('broken') || s.includes('bad')) return 'bg-red-500/20 text-red-400 border-red-500/50';
-  if (s.includes('maint') || s.includes('repair')) return 'bg-orange-500/20 text-orange-400 border-orange-500/50';
+  if (s.includes('install') || s.includes('deploy') || s.includes('active')) return 'bg-green-500/20 text-green-600 dark:text-green-400 border-green-500/50';
+  if (s.includes('return')) return 'bg-purple-500/20 text-purple-600 dark:text-purple-400 border-purple-500/50';
+  if (s.includes('spare') || s.includes('stock') || s.includes('inventory')) return 'bg-blue-500/20 text-blue-600 dark:text-blue-400 border-blue-500/50';
+  if (s.includes('plan') || s.includes('order') || s.includes('req')) return 'bg-yellow-500/20 text-yellow-600 dark:text-yellow-400 border-yellow-500/50';
+  if (s.includes('defect') || s.includes('broken') || s.includes('bad')) return 'bg-red-500/20 text-red-600 dark:text-red-400 border-red-500/50';
+  if (s.includes('maint') || s.includes('repair')) return 'bg-orange-500/20 text-orange-600 dark:text-orange-400 border-orange-500/50';
   
-  return 'bg-slate-700 text-slate-400';
+  return 'bg-slate-200 dark:bg-slate-700 text-slate-500 dark:text-slate-400';
 };
+
+const getStatusHex = (status: string) => {
+    if (!status) return STATUS_COLORS_HEX['Unknown'];
+    const s = status.toLowerCase();
+    if (s.includes('install')) return STATUS_COLORS_HEX['Installed'];
+    if (s.includes('return')) return STATUS_COLORS_HEX['Returned'];
+    if (s.includes('spare')) return STATUS_COLORS_HEX['Spare'];
+    if (s.includes('plan')) return STATUS_COLORS_HEX['Planned'];
+    if (s.includes('defect')) return STATUS_COLORS_HEX['Defective'];
+    if (s.includes('maint')) return STATUS_COLORS_HEX['Maintenance'];
+    return STATUS_COLORS_HEX['Unknown'];
+}
 
 const getRoleBadgeColor = (role: UserRole) => {
   switch (role) {
-    case 'superadmin': return 'bg-red-500/20 text-red-400 border-red-500/50';
-    case 'editor': return 'bg-indigo-500/20 text-indigo-400 border-indigo-500/50';
-    case 'viewer': return 'bg-slate-500/20 text-slate-400 border-slate-500/50';
+    case 'superadmin': return 'bg-red-500/20 text-red-500 dark:text-red-400 border-red-500/50';
+    case 'editor': return 'bg-indigo-500/20 text-indigo-500 dark:text-indigo-400 border-indigo-500/50';
+    case 'viewer': return 'bg-slate-500/20 text-slate-500 dark:text-slate-400 border-slate-500/50';
     default: return 'bg-slate-500/20 text-slate-400';
   }
 };
@@ -154,9 +185,40 @@ const INITIAL_DATA: AssetRecord[] = [
   { id: '5', date: '2025-11-20', assetId: '5', materialType: 'BMU', modelVariant: '11kV DC', nos: 1, circle: 'HIMMATANAGAR', division: 'IDAR', substation: 'HINGATIYA', status: 'Installed', assignedTo: 'DAKSH', plannedDate: '2025-11-20', replacementDate: '', remarks: '11kV PANCHMAHUDA', lastUpdatedBy: 'ADITYA' },
 ];
 
+// --- Simple Pie Chart Component (CSS Conic Gradient) ---
+const SimplePieChart = ({ data, size = 100 }: { data: { label: string; value: number; color: string }[], size?: number }) => {
+    const total = data.reduce((acc, curr) => acc + curr.value, 0);
+    if (total === 0) return <div className="rounded-full bg-slate-800" style={{ width: size, height: size }}></div>;
+
+    let startDeg = 0;
+    const gradientParts = data.map(item => {
+        const deg = (item.value / total) * 360;
+        const segment = `${item.color} ${startDeg}deg ${startDeg + deg}deg`;
+        startDeg += deg;
+        return segment;
+    });
+
+    const gradient = `conic-gradient(${gradientParts.join(', ')})`;
+
+    return (
+        <div 
+            className="rounded-full relative shadow-lg group hover:scale-105 transition-transform"
+            style={{ 
+                width: size, 
+                height: size, 
+                background: gradient 
+            }}
+        >
+            <div className="absolute inset-0 m-auto bg-slate-100 dark:bg-slate-900 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity" style={{ width: size * 0.5, height: size * 0.5 }}>
+                 <span className="text-[10px] font-bold text-slate-800 dark:text-white">{total}</span>
+            </div>
+        </div>
+    );
+};
+
+
 const App = () => {
   // --- Auth State ---
-  // Load user from localStorage to persist login session
   const [currentUser, setCurrentUser] = useState<User | null>(() => {
     try {
       const savedUser = localStorage.getItem('app_session_user');
@@ -205,6 +267,15 @@ const App = () => {
   const chatEndRef = useRef<HTMLDivElement>(null);
   const [formData, setFormData] = useState<Partial<AssetRecord>>({});
   const [sqlCopied, setSqlCopied] = useState(false);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false); // For Desktop Collapse
+
+  // Theme State
+  const [theme, setTheme] = useState<Theme>(() => {
+      try {
+          return (localStorage.getItem('app_theme') as Theme) || 'dark';
+      } catch { return 'dark'; }
+  });
 
   // --- Permissions Check ---
   const canEdit = currentUser && ['superadmin', 'editor'].includes(currentUser.role);
@@ -218,7 +289,17 @@ const App = () => {
 
   // --- Effects ---
   
-  // 1. Initial Load of Local Configs & Data & Auto-Connect DB
+  // Theme Effect
+  useEffect(() => {
+    const html = document.documentElement;
+    if (theme === 'dark') {
+        html.classList.add('dark');
+    } else {
+        html.classList.remove('dark');
+    }
+    localStorage.setItem('app_theme', theme);
+  }, [theme]);
+
   useEffect(() => {
     // Load API Key
     const savedKey = localStorage.getItem('user_gemini_key');
@@ -234,7 +315,6 @@ const App = () => {
         refreshDataFromDb(config);
       } catch (e) { console.error("Failed to load DB config", e); }
     } else {
-      // Fallback to LocalStorage if no DB is configured
       try {
         const savedInv = localStorage.getItem('app_inventory');
         if (savedInv) setInventory(JSON.parse(savedInv));
@@ -244,21 +324,18 @@ const App = () => {
     }
   }, []);
 
-  // 2. Real-time Subscription Setup
   useEffect(() => {
     if (!isDbConnected || !dbConfig) return;
 
     const supabase = createClient(dbConfig.url, dbConfig.key);
     
-    // Subscribe to ASSETS changes (Real-time Sync)
     const channel = supabase
       .channel('public:assets')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'assets' }, (payload) => {
-        // Handle Realtime Updates
         if (payload.eventType === 'INSERT') {
             const newItem = { id: payload.new.id, ...payload.new.data };
             setInventory(prev => {
-                if (prev.some(i => i.id === newItem.id)) return prev; // Avoid dupe
+                if (prev.some(i => i.id === newItem.id)) return prev; 
                 return [...prev, newItem];
             });
         } else if (payload.eventType === 'UPDATE') {
@@ -268,21 +345,14 @@ const App = () => {
             setInventory(prev => prev.filter(item => item.id !== payload.old.id));
         }
       })
-      .subscribe((status) => {
-        if (status === 'SUBSCRIBED') {
-           console.log("Realtime subscription active");
-        }
-      });
+      .subscribe();
 
     return () => {
       supabase.removeChannel(channel);
     };
   }, [isDbConnected, dbConfig]);
 
-
-  // 3. Persist to LocalStorage (Backup) AND Database
   useEffect(() => {
-    // Always save local backup
     if (!isDbConnected) {
        localStorage.setItem('app_inventory', JSON.stringify(inventory));
        localStorage.setItem('app_columns', JSON.stringify(columns));
@@ -297,21 +367,17 @@ const App = () => {
     setDbError(null);
     try {
       const supabase = createClient(config.url, config.key);
-      
-      // 1. Fetch Assets
       const { data: assets, error: assetError } = await supabase.from('assets').select('*');
       if (assetError) throw new Error(`Assets Sync Failed: ${assetError.message}`);
       
       if (assets && assets.length > 0) {
-        // Map DB 'data' column back to flat object
         const flatAssets = assets.map((row: any) => ({
              id: row.id,
-             ...row.data // Spread the JSONB data
+             ...row.data 
         }));
         setInventory(flatAssets);
       }
 
-      // 2. Fetch Config (Columns & Users)
       const { data: configs, error: configError } = await supabase.from('app_config').select('*');
       if (configError) throw new Error(`Config Sync Failed: ${configError.message}`);
       
@@ -324,9 +390,7 @@ const App = () => {
       }
 
     } catch (e: any) {
-      console.error("DB Sync Error:", e);
       setDbError(e.message || "Unknown Connection Error");
-      // Fallback to local storage if DB fails
       try {
         const savedInv = localStorage.getItem('app_inventory');
         if (savedInv) setInventory(JSON.parse(savedInv));
@@ -341,7 +405,6 @@ const App = () => {
     const supabase = getSupabase();
     if (!supabase) return;
     
-    // Separate ID from Data for clean storage
     const { id, ...data } = asset;
     
     const { error } = await supabase.from('assets').upsert({ 
@@ -350,8 +413,7 @@ const App = () => {
     });
 
     if (error) {
-       setMessages(prev => [...prev, { role: 'model', text: `Sync Error: ${error.message}` }]);
-       alert(`Failed to save to cloud: ${error.message}. Check your internet or Table Permissions.`);
+       alert(`Failed to save to cloud: ${error.message}.`);
     }
   };
 
@@ -359,7 +421,6 @@ const App = () => {
     if (!isDbConnected || !dbConfig) return;
     const supabase = getSupabase();
     if (!supabase) return;
-
     await supabase.from('assets').delete().eq('id', id);
   };
 
@@ -367,7 +428,6 @@ const App = () => {
     if (!isDbConnected || !dbConfig) return;
     const supabase = getSupabase();
     if (!supabase) return;
-
     await supabase.from('app_config').upsert({ 
         key: 'columns', 
         value: newColumns 
@@ -378,7 +438,6 @@ const App = () => {
     if (!isDbConnected || !dbConfig) return;
     const supabase = getSupabase();
     if (!supabase) return;
-
     await supabase.from('app_config').upsert({ 
         key: 'users_list', 
         value: newUsers 
@@ -398,14 +457,12 @@ const App = () => {
     localStorage.setItem('app_db_config', JSON.stringify(newConfig));
     setIsDbConnected(true);
     setShowDbModal(false);
-    
-    // Try to sync immediately
     await refreshDataFromDb(newConfig);
-    alert("Cloud Connection Configured! The app is now attempting to sync.");
+    alert("Cloud Connection Configured!");
   };
 
   const handleDisconnectDb = () => {
-    if(confirm("Disconnect from Cloud Database? App will revert to local offline mode.")) {
+    if(confirm("Disconnect from Cloud?")) {
        localStorage.removeItem('app_db_config');
        setDbConfig(null);
        setIsDbConnected(false);
@@ -416,28 +473,22 @@ const App = () => {
 
   const copySql = () => {
     const sql = `
--- 1. Create Assets Table
 create table if not exists assets (
   id text primary key,
   data jsonb not null,
   created_at timestamp with time zone default timezone('utc'::text, now()) not null
 );
 
--- 2. Create Config Table
 create table if not exists app_config (
   key text primary key,
   value jsonb not null
 );
 
--- 3. Enable RLS but allow Public Access (Simplest for this app)
 alter table assets enable row level security;
 alter table app_config enable row level security;
-
--- 4. Policies to allow ALL operations (Select, Insert, Update, Delete)
 create policy "Public Assets Access" on assets for all using (true) with check (true);
 create policy "Public Config Access" on app_config for all using (true) with check (true);
 
--- 5. Enable Realtime (Vital for instant updates!)
 alter publication supabase_realtime add table assets;
 alter publication supabase_realtime add table app_config;
     `;
@@ -445,9 +496,6 @@ alter publication supabase_realtime add table app_config;
     setSqlCopied(true);
     setTimeout(() => setSqlCopied(false), 2000);
   };
-
-
-  // --- Standard Handlers ---
 
   useEffect(() => {
     if (chatEndRef.current) chatEndRef.current.scrollIntoView({ behavior: 'smooth' });
@@ -477,12 +525,10 @@ alter publication supabase_realtime add table app_config;
     const user = users.find(u => u.username.toLowerCase() === loginForm.username.toLowerCase() && u.password === loginForm.password);
     if (user) {
       setCurrentUser(user);
-      localStorage.setItem('app_session_user', JSON.stringify(user)); // Persist session
+      localStorage.setItem('app_session_user', JSON.stringify(user));
       setLoginError('');
       setActiveTab('inventory');
       if (loginForm.apiKey.trim()) localStorage.setItem('user_gemini_key', loginForm.apiKey.trim());
-      
-      // Attempt to refresh DB on login if connected
       if (isDbConnected && dbConfig) {
           refreshDataFromDb(dbConfig);
       }
@@ -493,7 +539,7 @@ alter publication supabase_realtime add table app_config;
 
   const handleLogout = () => {
     setCurrentUser(null);
-    localStorage.removeItem('app_session_user'); // Clear session
+    localStorage.removeItem('app_session_user');
     setLoginForm(prev => ({ ...prev, password: '' }));
   };
 
@@ -506,9 +552,7 @@ alter publication supabase_realtime add table app_config;
     const newUser: User = { ...newUserForm };
     const updatedUsers = [...users, newUser];
     setUsers(updatedUsers);
-    
     if(isDbConnected) await saveUsersToDb(updatedUsers);
-    
     setNewUserForm({ username: '', password: '', role: 'viewer' });
   };
 
@@ -533,6 +577,10 @@ alter publication supabase_realtime add table app_config;
     } else {
       setShowInstallModal(true);
     }
+  };
+
+  const toggleTheme = () => {
+      setTheme(prev => prev === 'light' ? 'dark' : 'light');
   };
   
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -560,13 +608,8 @@ alter publication supabase_realtime add table app_config;
           }
         });
         newItems.push(item);
-        
-        // Sync to DB if connected
         if (isDbConnected) await saveAssetToDb(item);
       }
-      
-      // Update local state if NOT connected (if connected, realtime will handle it, or we optimistically update)
-      // For bulk import, optimistic update is safer
       setInventory(prev => [...prev, ...newItems]);
       setMessages(prev => [...prev, { role: 'model', text: `Imported ${newItems.length} records.` }]);
     };
@@ -596,22 +639,14 @@ alter publication supabase_realtime add table app_config;
       ...formData as AssetRecord,
       id: Date.now().toString(),
     };
-    
-    // Optimistic Update
     setInventory([...inventory, newItem]);
-    
-    // Sync DB
     if (isDbConnected) await saveAssetToDb(newItem);
-    
     setShowAddModal(false);
-    setMessages(prev => [...prev, { role: 'model', text: `Record added to database.` }]);
   };
 
   const handleDeleteItem = async (id: string) => {
     if (!canEdit) return;
     setInventory(inventory.filter(a => a.id !== id));
-    
-    // Sync DB
     if (isDbConnected) await deleteAssetFromDb(id);
   };
 
@@ -621,7 +656,6 @@ alter publication supabase_realtime add table app_config;
     const updatedInv = inventory.map(item => {
         if (item.id === statusModalItem.id) {
             const updated = { ...item, status: newStatus };
-            // Sync DB
             if (isDbConnected) saveAssetToDb(updated);
             return updated;
         }
@@ -629,7 +663,6 @@ alter publication supabase_realtime add table app_config;
     });
     setInventory(updatedInv);
     setStatusModalItem(null);
-    setMessages(prev => [...prev, { role: 'model', text: `Status updated to ${newStatus}.` }]);
   };
 
   const handleInputChange = (field: string, value: string | number) => {
@@ -662,12 +695,11 @@ alter publication supabase_realtime add table app_config;
   };
 
   const handleResetData = () => {
-    if(confirm("WARNING: This will delete ALL local data. Cloud data is safe but local cache will be cleared. Are you sure?")) {
+    if(confirm("WARNING: This will delete ALL local data.")) {
         localStorage.removeItem('app_inventory');
         localStorage.removeItem('app_columns');
         setInventory(INITIAL_DATA);
         setColumns(INITIAL_COLUMNS);
-        alert("Local Data Reset Complete.");
     }
   };
 
@@ -697,6 +729,7 @@ alter publication supabase_realtime add table app_config;
     return true;
   });
 
+  // Chart Logic
   const chartData = React.useMemo(() => {
     const data: Record<string, number> = {};
     inventory.forEach(item => {
@@ -706,6 +739,20 @@ alter publication supabase_realtime add table app_config;
     });
     return Object.entries(data).sort(([, a], [, b]) => b - a).slice(0, 15);
   }, [inventory, chartConfig]);
+
+  const pieChartData = React.useMemo(() => {
+     const statusCounts: Record<string, number> = {};
+     inventory.forEach(item => {
+         const s = String(item.status || 'Unknown');
+         statusCounts[s] = (statusCounts[s] || 0) + (Number(item.nos) || 1);
+     });
+     
+     return Object.entries(statusCounts).map(([status, value]) => ({
+         label: status,
+         value,
+         color: getStatusHex(status)
+     }));
+  }, [inventory]);
 
   const maxChartValue = Math.max(...chartData.map(([, v]) => v), 1);
 
@@ -731,40 +778,37 @@ alter publication supabase_realtime add table app_config;
     const installed = items.filter(i => String(i.status).toLowerCase() === 'installed').length;
     const returned = items.filter(i => String(i.status).toLowerCase() === 'returned').length;
     const planned = items.filter(i => String(i.status).toLowerCase() === 'planned').length;
-    return { items, spares, installed, returned, planned };
+    
+    const pieData = [
+        { label: 'Installed', value: installed, color: STATUS_COLORS_HEX['Installed'] },
+        { label: 'Spare', value: spares, color: STATUS_COLORS_HEX['Spare'] },
+        { label: 'Returned', value: returned, color: STATUS_COLORS_HEX['Returned'] },
+        { label: 'Planned', value: planned, color: STATUS_COLORS_HEX['Planned'] }
+    ].filter(d => d.value > 0);
+
+    return { items, spares, installed, returned, planned, pieData };
   };
 
   const handleSendMessage = async () => {
     if (!inputMessage.trim()) return;
     const apiKey = localStorage.getItem('user_gemini_key') || getEnvApiKey();
-
     if (!apiKey) {
         setMessages(prev => [...prev, { role: 'model', text: "Error: No API Key found." }]);
         return;
     }
-
     const userText = inputMessage;
     setInputMessage("");
     setMessages(prev => [...prev, { role: 'user', text: userText }]);
     setIsThinking(true);
-
     try {
       const ai = new GoogleGenAI({ apiKey: apiKey });
       const visibleColumns = columns.map(c => c.label).join(', ');
-      
       const contextData = inventory.slice(0, 50).map(item => {
         let simplified: any = {};
         columns.forEach(col => { simplified[col.label] = item[col.id]; });
         return simplified;
       });
-
-      const prompt = `
-        You are "LogisticsDroid".
-        Data Schema Fields: ${visibleColumns}.
-        Inventory Sample: ${JSON.stringify(contextData)}
-        User Query: ${userText}
-      `;
-
+      const prompt = `LogisticsDroid. Data Schema: ${visibleColumns}. Sample: ${JSON.stringify(contextData)}. User: ${userText}`;
       const response = await ai.models.generateContent({ model: 'gemini-2.5-flash', contents: prompt });
       setMessages(prev => [...prev, { role: 'model', text: response.text || "Error." }]);
     } catch (error) {
@@ -774,11 +818,22 @@ alter publication supabase_realtime add table app_config;
     }
   };
 
-  // --- Render ---
+  // --- Nav Components ---
+  const NavItem = ({ tab, icon: Icon, label }: { tab: typeof activeTab, icon: any, label: string }) => (
+     <button 
+        onClick={() => { setActiveTab(tab); setIsSidebarOpen(false); }}
+        className={`w-full flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-300 font-medium ${activeTab === tab ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-900/50' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800 hover:text-indigo-600 dark:hover:text-white'} ${isSidebarCollapsed ? 'justify-center' : ''}`}
+        title={isSidebarCollapsed ? label : ''}
+     >
+        <Icon className={`w-5 h-5 flex-shrink-0 ${activeTab === tab ? 'text-white' : ''}`} />
+        {!isSidebarCollapsed && <span className="tracking-wide whitespace-nowrap overflow-hidden">{label}</span>}
+        {!isSidebarCollapsed && activeTab === tab && <div className="ml-auto w-1.5 h-1.5 rounded-full bg-white shadow-[0_0_10px_white]" />}
+     </button>
+  );
 
   if (!currentUser) {
     return (
-      <div className="min-h-screen bg-[#0f172a] flex items-center justify-center p-4 relative overflow-hidden font-sans">
+      <div className="min-h-screen flex items-center justify-center p-4 relative overflow-hidden font-sans">
         <div className="absolute top-0 left-0 w-full h-full overflow-hidden z-0">
           <div className="absolute top-[-20%] left-[-20%] w-[60%] h-[60%] bg-blue-600 rounded-full blur-[150px] opacity-20" />
           <div className="absolute bottom-[-20%] right-[-20%] w-[60%] h-[60%] bg-indigo-600 rounded-full blur-[150px] opacity-20" />
@@ -786,68 +841,72 @@ alter publication supabase_realtime add table app_config;
         <div className="glass-panel w-full max-w-md p-8 rounded-2xl border border-indigo-500/30 shadow-2xl relative z-10">
           <div className="text-center mb-8">
             <div className="w-16 h-16 bg-indigo-500/20 rounded-xl flex items-center justify-center mx-auto mb-4 neon-border shadow-[0_0_20px_rgba(99,102,241,0.4)]">
-              <Shield className="w-8 h-8 text-indigo-400" />
+              <Shield className="w-8 h-8 text-indigo-500 dark:text-indigo-400" />
             </div>
-            <h1 className="text-2xl font-bold font-display tracking-wider text-white">SECURE<span className="text-indigo-400">LOGIN</span></h1>
-            <p className="text-slate-400 text-sm mt-2 font-mono">Logistics Command Center</p>
+            <h1 className="text-2xl font-bold font-display tracking-wider text-slate-800 dark:text-white">SECURE<span className="text-indigo-500 dark:text-indigo-400">LOGIN</span></h1>
+            <p className="text-slate-500 dark:text-slate-400 text-sm mt-2 font-mono">Logistics Command Center</p>
           </div>
           <form onSubmit={handleLogin} className="space-y-4">
             <div>
               <label className="block text-xs uppercase text-slate-500 font-bold mb-1.5 ml-1">Username</label>
               <div className="relative">
-                <input type="text" value={loginForm.username} onChange={e => setLoginForm({...loginForm, username: e.target.value})} className="w-full bg-slate-800/50 border border-slate-600 rounded-lg pl-10 pr-4 py-3 text-white focus:outline-none focus:border-indigo-400" placeholder="Enter ID" />
+                <input type="text" value={loginForm.username} onChange={e => setLoginForm({...loginForm, username: e.target.value})} className="w-full bg-[var(--input-bg)] border border-slate-300 dark:border-slate-600 rounded-lg pl-10 pr-4 py-3 text-slate-900 dark:text-white focus:outline-none focus:border-indigo-400" placeholder="Enter ID" />
                 <Bot className="w-5 h-5 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
               </div>
             </div>
             <div>
               <label className="block text-xs uppercase text-slate-500 font-bold mb-1.5 ml-1">Password</label>
               <div className="relative">
-                <input type="password" value={loginForm.password} onChange={e => setLoginForm({...loginForm, password: e.target.value})} className="w-full bg-slate-800/50 border border-slate-600 rounded-lg pl-10 pr-4 py-3 text-white focus:outline-none focus:border-indigo-400" placeholder="••••••••" />
+                <input type="password" value={loginForm.password} onChange={e => setLoginForm({...loginForm, password: e.target.value})} className="w-full bg-[var(--input-bg)] border border-slate-300 dark:border-slate-600 rounded-lg pl-10 pr-4 py-3 text-slate-900 dark:text-white focus:outline-none focus:border-indigo-400" placeholder="••••••••" />
                 <Lock className="w-5 h-5 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
               </div>
             </div>
-            <div className="pt-2 border-t border-slate-700/50">
-               <label className="block text-[10px] uppercase text-indigo-400 font-bold mb-1.5 ml-1">Gemini API Key (Optional)</label>
+            <div className="pt-2 border-t border-slate-300 dark:border-slate-700/50">
+               <label className="block text-[10px] uppercase text-indigo-500 dark:text-indigo-400 font-bold mb-1.5 ml-1">Gemini API Key (Optional)</label>
                <div className="relative">
-                  <input type="password" value={loginForm.apiKey} onChange={e => setLoginForm({...loginForm, apiKey: e.target.value})} className="w-full bg-slate-900/50 border border-slate-700 rounded-lg pl-10 pr-4 py-2 text-xs text-slate-300 focus:outline-none focus:border-indigo-400" placeholder="Enter key if hosting on GitHub Pages" />
-                  <Key className="w-4 h-4 text-slate-600 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input type="password" value={loginForm.apiKey} onChange={e => setLoginForm({...loginForm, apiKey: e.target.value})} className="w-full bg-[var(--input-bg)] border border-slate-300 dark:border-slate-700 rounded-lg pl-10 pr-4 py-2 text-xs text-slate-600 dark:text-slate-300 focus:outline-none focus:border-indigo-400" placeholder="Enter key if hosting on GitHub Pages" />
+                  <Key className="w-4 h-4 text-slate-500 dark:text-slate-600 absolute left-3 top-1/2 -translate-y-1/2" />
                </div>
             </div>
-            {loginError && <div className="text-red-400 text-sm text-center bg-red-500/10 border border-red-500/20 p-3 rounded-lg flex items-center justify-center gap-2"><AlertTriangle className="w-4 h-4" /> {loginError}</div>}
+            {loginError && <div className="text-red-500 dark:text-red-400 text-sm text-center bg-red-500/10 border border-red-500/20 p-3 rounded-lg flex items-center justify-center gap-2"><AlertTriangle className="w-4 h-4" /> {loginError}</div>}
             <button type="submit" className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-3 rounded-lg shadow-[0_0_20px_rgba(99,102,241,0.4)] transition-all flex items-center justify-center gap-2 group mt-4"><span className="group-hover:tracking-widest transition-all duration-300">AUTHENTICATE</span><ArrowRightLeft className="w-4 h-4" /></button>
           </form>
-          <div className="mt-8 text-center border-t border-slate-700/50 pt-4"><p className="text-[10px] text-slate-500 uppercase tracking-widest">Authorized Personnel Only</p><div className="mt-2 text-xs text-slate-600">Default: admin/password | staff/123 | guest/guest</div></div>
+          <div className="mt-8 text-center border-t border-slate-300 dark:border-slate-700/50 pt-4"><p className="text-[10px] text-slate-500 uppercase tracking-widest">Authorized Personnel Only</p><div className="mt-2 text-xs text-slate-500 dark:text-slate-600">Default: admin/password | staff/123 | guest/guest</div></div>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen pb-20 relative overflow-hidden text-slate-200 font-sans">
-      <div className="absolute top-0 left-0 w-full h-full overflow-hidden -z-10 opacity-20 pointer-events-none">
+    <div className="min-h-screen text-slate-800 dark:text-slate-200 font-sans flex flex-col transition-colors duration-300">
+      <div className="fixed top-0 left-0 w-full h-full overflow-hidden -z-10 opacity-20 pointer-events-none">
         <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-blue-600 rounded-full blur-[120px]" />
         <div className="absolute bottom-[-10%] right-[-10%] w-[30%] h-[30%] bg-indigo-600 rounded-full blur-[100px]" />
       </div>
 
-      <header className="px-6 py-4 flex flex-wrap gap-4 justify-between items-center glass-panel sticky top-0 z-30 mb-6 border-b border-indigo-500/20 backdrop-blur-xl bg-slate-900/80">
+      {/* HEADER - Sticky Top */}
+      <header className="px-4 py-3 flex gap-4 justify-between items-center glass-panel sticky top-0 z-50 border-b border-indigo-500/20 backdrop-blur-xl h-16">
         <div className="flex items-center gap-3">
-          <div className="bg-indigo-500/20 p-2 rounded-lg neon-border shadow-[0_0_15px_rgba(99,102,241,0.3)]">
-            <Cpu className="w-6 h-6 text-indigo-400" />
+          <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="md:hidden p-2 text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white"><Menu className="w-6 h-6" /></button>
+          <div className="bg-indigo-500/20 p-1.5 rounded-lg neon-border shadow-[0_0_15px_rgba(99,102,241,0.3)]">
+            <Cpu className="w-5 h-5 text-indigo-500 dark:text-indigo-400" />
           </div>
           <div>
-            <h1 className="text-xl font-bold font-display tracking-wider text-white">GRID<span className="text-indigo-400">ASSETS</span></h1>
-            <p className="text-[10px] text-indigo-300 font-mono tracking-[0.2em] uppercase">Material Management System</p>
+            <h1 className="text-lg font-bold font-display tracking-wider text-slate-900 dark:text-white leading-tight">GRID<span className="text-indigo-500 dark:text-indigo-400">ASSETS</span></h1>
           </div>
         </div>
         
-        <div className="flex gap-3 items-center">
-           {/* Cloud Database Button */}
+        <div className="flex gap-2 items-center">
+           <button onClick={toggleTheme} className="p-2 rounded-full bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-700 transition-colors">
+              {theme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+           </button>
+
            <button 
              onClick={() => setShowDbModal(true)}
-             className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border transition-all text-xs font-mono uppercase tracking-wide ${isDbConnected ? 'bg-indigo-900/40 border-indigo-500/50 text-indigo-300 shadow-[0_0_10px_rgba(99,102,241,0.3)]' : 'bg-slate-800 border-slate-600 text-slate-400 hover:text-white'}`}
+             className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border transition-all text-[10px] font-mono uppercase tracking-wide ${isDbConnected ? 'bg-indigo-100 dark:bg-indigo-900/40 border-indigo-500/50 text-indigo-600 dark:text-indigo-300 shadow-[0_0_10px_rgba(99,102,241,0.3)]' : 'bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-600 text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white'}`}
            >
-             {isDbConnected ? <Cloud className="w-4 h-4 text-green-400" /> : <Database className="w-4 h-4" />}
-             <span className="hidden sm:inline">{isDbConnected ? 'Cloud Sync' : 'Connect DB'}</span>
+             {isDbConnected ? <Cloud className="w-3 h-3 text-green-500 dark:text-green-400" /> : <Database className="w-3 h-3" />}
+             <span className="hidden sm:inline">{isDbConnected ? 'Sync Active' : 'Connect DB'}</span>
            </button>
 
            <div className={`hidden md:flex items-center gap-2 px-3 py-1.5 rounded-full border text-xs font-medium uppercase tracking-wide ${getRoleBadgeColor(currentUser.role)}`}>
@@ -855,275 +914,349 @@ alter publication supabase_realtime add table app_config;
               <span>{currentUser.username}</span>
            </div>
 
-           <div className="relative hidden md:block">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
-              <input type="text" placeholder="Search database..." className="bg-slate-800/50 border border-slate-600 rounded-lg pl-9 pr-4 py-1.5 text-sm focus:outline-none focus:border-indigo-400 w-64 transition-all" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
-           </div>
-
-           {canManageUsers && (
-             <button onClick={() => setShowCustomizeModal(true)} className="flex items-center gap-2 px-3 py-1.5 bg-indigo-900/40 hover:bg-indigo-900/60 rounded-lg cursor-pointer transition-colors border border-indigo-500/30 text-indigo-300 text-xs font-mono uppercase tracking-wide">
-               <Settings className="w-4 h-4" /><span className="hidden sm:inline">Customize Fields</span>
-             </button>
-           )}
-
-           <button onClick={handleInstallClick} className="flex items-center gap-2 px-3 py-1.5 bg-green-600/20 hover:bg-green-600/40 rounded-lg cursor-pointer transition-colors border border-green-500/40 text-green-400 text-xs font-mono uppercase tracking-wide group">
-              <Download className="w-4 h-4" /><span className="hidden sm:inline">Install / Get App</span>
+           <button onClick={handleInstallClick} className="flex items-center gap-2 px-3 py-1.5 bg-green-600/10 dark:bg-green-600/20 hover:bg-green-600/20 dark:hover:bg-green-600/40 rounded-lg cursor-pointer transition-colors border border-green-500/40 text-green-600 dark:text-green-400 text-xs font-mono uppercase tracking-wide group">
+              <Download className="w-3 h-3" /><span className="hidden sm:inline">Install</span>
            </button>
 
-           {canEdit && (
-              <label className="flex items-center gap-2 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg cursor-pointer transition-colors border border-slate-600 hover:border-indigo-400 text-xs font-mono uppercase tracking-wide">
-                <FileSpreadsheet className="w-4 h-4 text-emerald-400" /><span className="hidden sm:inline">Import CSV</span>
-                <input type="file" accept=".csv,.txt" onChange={handleFileUpload} className="hidden" />
-              </label>
-           )}
-
-          <button onClick={handleLogout} className="p-2 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors border border-red-500/20"><LogOut className="w-4 h-4" /></button>
-          <button onClick={() => setIsChatOpen(!isChatOpen)} className={`p-2 rounded-full transition-all duration-300 ${isChatOpen ? 'bg-indigo-500 text-white shadow-[0_0_15px_rgba(99,102,241,0.5)]' : 'bg-slate-800 hover:bg-slate-700 text-slate-300'}`}>
-            {isChatOpen ? <X className="w-5 h-5"/> : <Bot className="w-5 h-5"/>}
+          <button onClick={() => setIsChatOpen(!isChatOpen)} className={`p-2 rounded-full transition-all duration-300 ${isChatOpen ? 'bg-indigo-500 text-white shadow-[0_0_15px_rgba(99,102,241,0.5)]' : 'bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300'}`}>
+            {isChatOpen ? <X className="w-4 h-4"/> : <Bot className="w-4 h-4"/>}
           </button>
         </div>
       </header>
 
-      <main className="max-w-[1600px] mx-auto px-4 md:px-6">
-        <div className="flex gap-1 mb-6 bg-slate-800/50 p-1 rounded-xl w-fit border border-slate-700 flex-wrap">
-          <button onClick={() => setActiveTab('inventory')} className={`px-4 py-2 rounded-lg text-sm font-medium transition-all flex items-center gap-2 ${activeTab === 'inventory' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:text-slate-200'}`}><Package className="w-4 h-4" /> Master List</button>
-          <button onClick={() => setActiveTab('engineers')} className={`px-4 py-2 rounded-lg text-sm font-medium transition-all flex items-center gap-2 ${activeTab === 'engineers' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:text-slate-200'}`}><Users className="w-4 h-4" /> Engineer View</button>
-          <button onClick={() => setActiveTab('charts')} className={`px-4 py-2 rounded-lg text-sm font-medium transition-all flex items-center gap-2 ${activeTab === 'charts' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:text-slate-200'}`}><BarChart3 className="w-4 h-4" /> Analytics</button>
-          <button onClick={() => setActiveTab('history')} className={`px-4 py-2 rounded-lg text-sm font-medium transition-all flex items-center gap-2 ${activeTab === 'history' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:text-slate-200'}`}><CalendarRange className="w-4 h-4" /> History & Export</button>
-          {canManageUsers && <button onClick={() => setActiveTab('users')} className={`px-4 py-2 rounded-lg text-sm font-medium transition-all flex items-center gap-2 ${activeTab === 'users' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:text-slate-200'}`}><UserCog className="w-4 h-4" /> User Admin</button>}
-        </div>
-
-        {activeTab === 'inventory' && (
-          <>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-            <div onClick={() => setActiveKPI('Total Assets')} className="glass-panel p-4 rounded-xl relative overflow-hidden group cursor-pointer hover:border-indigo-400/50 hover:scale-[1.02] transition-all">
-              <div className="absolute right-0 top-0 p-3 opacity-10 group-hover:opacity-20 transition-opacity"><Package className="w-16 h-16" /></div>
-              <p className="text-slate-400 text-xs font-bold uppercase tracking-wider mb-1 flex items-center gap-1">Total Assets <Info className="w-3 h-3" /></p>
-              <h2 className="text-3xl font-display font-bold text-white">{totalAssets}</h2>
-            </div>
-            <div onClick={() => setActiveKPI('Installed')} className="glass-panel p-4 rounded-xl relative overflow-hidden group border-l-4 border-l-green-500 cursor-pointer hover:border-l-green-400 hover:scale-[1.02] transition-all">
-              <div className="absolute right-0 top-0 p-3 opacity-10 group-hover:opacity-20 transition-opacity"><CheckCircle2 className="w-16 h-16" /></div>
-              <p className="text-slate-400 text-xs font-bold uppercase tracking-wider mb-1 flex items-center gap-1">Installed <Info className="w-3 h-3" /></p>
-              <h2 className="text-3xl font-display font-bold text-green-400">{installedCount}</h2>
-            </div>
-            <div onClick={() => setActiveKPI('Spare')} className="glass-panel p-4 rounded-xl relative overflow-hidden group border-l-4 border-l-blue-500 cursor-pointer hover:border-l-blue-400 hover:scale-[1.02] transition-all">
-               <div className="absolute right-0 top-0 p-3 opacity-10 group-hover:opacity-20 transition-opacity"><Box className="w-16 h-16" /></div>
-              <p className="text-slate-400 text-xs font-bold uppercase tracking-wider mb-1 flex items-center gap-1">Spares <Info className="w-3 h-3" /></p>
-              <h2 className="text-3xl font-display font-bold text-blue-400">{spareCount}</h2>
-            </div>
-            <div onClick={() => setActiveKPI('Planned')} className="glass-panel p-4 rounded-xl relative overflow-hidden group border-l-4 border-l-yellow-500 cursor-pointer hover:border-l-yellow-400 hover:scale-[1.02] transition-all">
-               <div className="absolute right-0 top-0 p-3 opacity-10 group-hover:opacity-20 transition-opacity"><Calendar className="w-16 h-16" /></div>
-              <p className="text-slate-400 text-xs font-bold uppercase tracking-wider mb-1 flex items-center gap-1">Planned <Info className="w-3 h-3" /></p>
-              <h2 className="text-3xl font-display font-bold text-yellow-400">{plannedCount}</h2>
-            </div>
-          </div>
-
-          <div className="glass-panel rounded-xl overflow-hidden border border-slate-700/50 shadow-2xl">
-            <div className="p-4 border-b border-slate-700/50 flex justify-between items-center bg-slate-800/40">
-              <h3 className="font-display font-bold text-lg text-indigo-100 flex items-center gap-2">
-                <ClipboardList className="w-5 h-5 text-indigo-400" /> Asset Registry 
-                {isDbConnected && <span className="text-[10px] bg-green-900/40 text-green-400 border border-green-500/30 px-2 py-0.5 rounded-full flex items-center gap-1 animate-pulse"><Activity className="w-3 h-3"/> Live Sync</span>}
-              </h3>
-              {canEdit && <button onClick={() => setShowAddModal(true)} className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-1.5 rounded-lg transition-colors text-sm font-medium shadow-[0_0_15px_rgba(99,102,241,0.4)]"><Plus className="w-4 h-4" /> Add Asset</button>}
-            </div>
-            {dbError && (
-               <div className="p-4 bg-red-500/10 border-b border-red-500/30 text-red-400 text-sm flex items-center gap-2 justify-center">
-                  <AlertTriangle className="w-4 h-4"/> Connection Error: {dbError}
-               </div>
-            )}
-            {dbLoading ? (
-               <div className="p-12 text-center text-indigo-400 flex flex-col items-center gap-4">
-                  <RefreshCcw className="w-8 h-8 animate-spin" />
-                  <p>Syncing with Cloud Database...</p>
-               </div>
-            ) : (
-                <div className="overflow-x-auto">
-                <table className="w-full text-left text-sm">
-                    <thead className="bg-slate-900/50 text-slate-400 text-xs uppercase tracking-wider font-semibold">
-                    <tr>
-                        {columns.map(col => <th key={col.id} className={`p-3 border-b border-slate-700 whitespace-nowrap ${col.width || ''}`}>{col.label}</th>)}
-                        {canEdit && <th className="p-3 border-b border-slate-700 text-right">Action</th>}
-                    </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-700/30">
-                    {filteredInventory.map((item) => (
-                        <tr key={item.id} className="hover:bg-indigo-500/5 transition-colors group">
-                        {columns.map(col => (
-                            <td key={col.id} className="p-3 text-slate-300">
-                            {col.id === 'status' || col.label.toLowerCase().includes('status') ? (
-                                <span className={`px-2 py-0.5 rounded text-[10px] uppercase font-bold tracking-wide border ${getStatusColor(item[col.id])}`}>{item[col.id]}</span>
-                            ) : col.type === 'date' ? (
-                                <span className="font-mono text-xs text-slate-400">{item[col.id]}</span>
-                            ) : (
-                                <span className={col.id === 'assetId' ? 'font-mono text-white font-medium' : ''}>{item[col.id]}</span>
-                            )}
-                            </td>
-                        ))}
-                        {canEdit && (
-                            <td className="p-3 text-right">
-                            <div className="flex justify-end gap-1">
-                                <button onClick={() => setStatusModalItem(item)} className="p-1.5 text-slate-400 hover:text-indigo-400 hover:bg-indigo-500/10 rounded transition-colors" title="Update Status"><ArrowRightLeft className="w-4 h-4" /></button>
-                                <button onClick={() => handleDeleteItem(item.id)} className="p-1.5 text-slate-400 hover:text-red-400 hover:bg-red-500/10 rounded transition-colors" title="Delete Item"><Trash2 className="w-4 h-4" /></button>
-                            </div>
-                            </td>
-                        )}
-                        </tr>
-                    ))}
-                    {filteredInventory.length === 0 && <tr><td colSpan={columns.length + (canEdit ? 1 : 0)} className="p-8 text-center text-slate-500">No assets found matching your search.</td></tr>}
-                    </tbody>
-                </table>
-                </div>
-            )}
-          </div>
-          </>
-        )}
-
-        {/* View: Engineers */}
-        {activeTab === 'engineers' && (
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-            {engineers.map(eng => {
-              const { items, spares, installed } = getEngineerBreakdown(eng);
-              return (
-                <div key={eng} onClick={() => setActiveEngineer(eng)} className="glass-panel rounded-xl overflow-hidden border border-indigo-500/20 hover:border-indigo-500/50 hover:scale-[1.01] transition-all group cursor-pointer">
-                  <div className="p-4 bg-gradient-to-r from-indigo-900/40 to-slate-900/40 border-b border-indigo-500/20 flex justify-between items-center">
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-lg bg-indigo-600 flex items-center justify-center font-bold text-white text-lg shadow-lg">{eng.charAt(0)}</div>
-                      <div><h3 className="font-bold text-white tracking-wide">{eng}</h3><p className="text-[10px] text-indigo-300 uppercase tracking-wider">Field Engineer</p></div>
-                    </div>
-                    <div className="flex gap-2">
-                       <div className="text-center px-2 py-1 bg-slate-800 rounded"><div className="text-[10px] text-slate-500 uppercase">Spare</div><div className="font-mono font-bold text-blue-400">{spares}</div></div>
-                       <div className="text-center px-2 py-1 bg-slate-800 rounded"><div className="text-[10px] text-slate-500 uppercase">Inst</div><div className="font-mono font-bold text-green-400">{installed}</div></div>
-                    </div>
-                  </div>
-                  <div className="p-0">
-                    <ul className="divide-y divide-slate-700/30 max-h-[300px] overflow-y-auto custom-scrollbar">
-                      {items.slice(0, 5).map(item => (
-                        <li key={item.id} className="p-3 hover:bg-slate-800/30 transition-colors">
-                           <div className="flex justify-between items-start mb-1"><span className="font-medium text-slate-200 text-sm">{item.modelVariant || 'Unknown Item'}</span><span className={`text-[10px] px-1.5 rounded border ${getStatusColor(item.status)}`}>{item.status}</span></div>
-                           <div className="flex justify-between items-end"><div className="text-xs text-slate-500">{item.circle} {item.division && ` > ${item.division}`}</div><div className="text-xs font-mono text-slate-400">ID: {item.assetId}</div></div>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-
-        {/* View: Analytics */}
-        {activeTab === 'charts' && (
-          <div className="space-y-6">
-             <div className="glass-panel p-4 rounded-xl flex flex-wrap gap-4 items-center">
-                <div>
-                   <label className="text-xs text-slate-400 uppercase font-bold block mb-1">Group By</label>
-                   <select value={chartConfig.groupBy} onChange={(e) => setChartConfig(prev => ({...prev, groupBy: e.target.value}))} className="bg-slate-800 border border-slate-600 rounded px-3 py-1.5 text-sm min-w-[150px] focus:border-indigo-400 outline-none">
-                      {columns.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
-                   </select>
-                </div>
-                <div>
-                   <label className="text-xs text-slate-400 uppercase font-bold block mb-1">Metric</label>
-                   <select value={chartConfig.metric} onChange={(e) => setChartConfig(prev => ({...prev, metric: e.target.value}))} className="bg-slate-800 border border-slate-600 rounded px-3 py-1.5 text-sm min-w-[150px] focus:border-indigo-400 outline-none">
-                      <option value="count">Count Records</option>
-                      <option value="sum_nos">Sum of Quantities (NOS)</option>
-                   </select>
-                </div>
+      <div className="flex flex-1 overflow-hidden relative">
+        {/* SIDEBAR NAVIGATION */}
+        <aside className={`
+            fixed md:static top-16 left-0 h-[calc(100vh-64px)] 
+            ${isSidebarCollapsed ? 'w-20' : 'w-64'}
+            bg-[var(--sidebar-bg)] 
+            md:bg-transparent border-r border-indigo-500/20 z-40 transition-all duration-300 flex flex-col p-2
+            ${isSidebarOpen ? 'translate-x-0 w-64' : '-translate-x-full md:translate-x-0'}
+            backdrop-blur-xl md:backdrop-blur-none
+        `}>
+             <div className="space-y-2 flex-1 pt-4">
+                 <div className={`text-[10px] uppercase font-bold text-slate-500 mb-2 pl-2 transition-opacity ${isSidebarCollapsed ? 'opacity-0 h-0' : 'opacity-100'}`}>Main Menu</div>
+                 <NavItem tab="inventory" icon={Package} label="Master List" />
+                 <NavItem tab="engineers" icon={Users} label="Engineer View" />
+                 <NavItem tab="charts" icon={BarChart3} label="Analytics" />
+                 <NavItem tab="history" icon={CalendarRange} label="History" />
+                 
+                 {canManageUsers && (
+                    <>
+                        <div className={`text-[10px] uppercase font-bold text-slate-500 mt-6 mb-2 pl-2 transition-opacity ${isSidebarCollapsed ? 'opacity-0 h-0' : 'opacity-100'}`}>Admin</div>
+                        <NavItem tab="users" icon={UserCog} label="User Admin" />
+                    </>
+                 )}
              </div>
-             <div className="glass-panel p-6 rounded-xl border border-slate-700">
-                <h3 className="text-lg font-bold mb-6 flex items-center gap-2"><BarChart3 className="text-indigo-400" /> Distribution by {columns.find(c => c.id === chartConfig.groupBy)?.label || chartConfig.groupBy}</h3>
-                {chartData.length > 0 ? (
-                  <div className="space-y-3">
-                    {chartData.map(([label, value], idx) => (
-                      <div key={label} className="relative">
-                        <div className="flex justify-between text-xs mb-1"><span className="font-bold text-slate-300">{label}</span><span className="font-mono text-indigo-300">{value}</span></div>
-                        <div className="w-full bg-slate-800 h-2.5 rounded-full overflow-hidden"><div className="h-full bg-indigo-500 rounded-full transition-all duration-1000 ease-out shadow-[0_0_10px_rgba(99,102,241,0.5)]" style={{ width: `${(value / maxChartValue) * 100}%`, animationDelay: `${idx * 50}ms` }} /></div>
+
+             <div className="pt-4 border-t border-slate-300 dark:border-slate-700/50 space-y-2">
+                 {!isSidebarCollapsed && (
+                     <div className="flex items-center gap-3 px-4 py-2 text-slate-500 text-xs whitespace-nowrap overflow-hidden">
+                        <Shield className="w-3 h-3 flex-shrink-0" />
+                        <span>Role: {currentUser.role}</span>
+                     </div>
+                 )}
+                 <button onClick={handleLogout} className={`w-full flex items-center gap-3 px-3 py-3 rounded-xl transition-colors text-red-500 dark:text-red-400 hover:bg-red-500/10 hover:text-red-600 dark:hover:text-red-300 ${isSidebarCollapsed ? 'justify-center' : ''}`} title="Logout">
+                    <LogOut className="w-5 h-5 flex-shrink-0" />
+                    {!isSidebarCollapsed && <span className="font-medium">Log Out</span>}
+                 </button>
+                 
+                 {/* Desktop Sidebar Collapse Toggle */}
+                 <button 
+                   onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)} 
+                   className="hidden md:flex w-full items-center justify-center p-2 mt-2 text-slate-400 hover:text-indigo-400 hover:bg-slate-200 dark:hover:bg-slate-800 rounded-lg transition-colors"
+                 >
+                   {isSidebarCollapsed ? <PanelLeftOpen className="w-5 h-5" /> : <PanelLeftClose className="w-5 h-5" />}
+                 </button>
+             </div>
+        </aside>
+
+        {/* MAIN CONTENT AREA */}
+        <main className="flex-1 overflow-y-auto p-4 md:p-6 pb-20 scrollbar-thin">
+          
+          {/* SEARCH & ACTION BAR */}
+          <div className="flex flex-col md:flex-row gap-4 mb-6 justify-between items-start md:items-center">
+             <div className="relative w-full md:w-96">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+                <input type="text" placeholder="Search assets, engineers, locations..." className="w-full bg-[var(--input-bg)] border border-slate-300 dark:border-slate-600 rounded-xl pl-10 pr-4 py-3 text-sm focus:outline-none focus:border-indigo-400 transition-all shadow-inner text-slate-800 dark:text-white placeholder-slate-400" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
+             </div>
+             
+             <div className="flex gap-2 w-full md:w-auto">
+                 {canManageUsers && (
+                    <button onClick={() => setShowCustomizeModal(true)} className="flex-1 md:flex-none flex items-center justify-center gap-2 px-4 py-2.5 bg-indigo-100 dark:bg-indigo-900/40 hover:bg-indigo-200 dark:hover:bg-indigo-900/60 rounded-xl cursor-pointer transition-colors border border-indigo-500/30 text-indigo-600 dark:text-indigo-300 text-xs font-mono uppercase tracking-wide">
+                        <Settings className="w-4 h-4" /><span>Fields</span>
+                    </button>
+                 )}
+                 {canEdit && (
+                    <label className="flex-1 md:flex-none flex items-center justify-center gap-2 px-4 py-2.5 bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 rounded-xl cursor-pointer transition-colors border border-slate-400 dark:border-slate-600 hover:border-indigo-400 text-xs font-mono uppercase tracking-wide text-slate-600 dark:text-slate-300">
+                        <FileSpreadsheet className="w-4 h-4 text-emerald-500 dark:text-emerald-400" /><span>Import</span>
+                        <input type="file" accept=".csv,.txt" onChange={handleFileUpload} className="hidden" />
+                    </label>
+                 )}
+             </div>
+          </div>
+
+          {/* TAB: MASTER LIST */}
+          {activeTab === 'inventory' && (
+            <>
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+              <div onClick={() => setActiveKPI('Total Assets')} className="glass-panel p-5 rounded-2xl relative overflow-hidden group cursor-pointer hover:border-indigo-400/50 hover:scale-[1.01] transition-all">
+                <div className="absolute right-0 top-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity"><Package className="w-20 h-20 text-slate-900 dark:text-white" /></div>
+                <p className="text-slate-500 dark:text-slate-400 text-xs font-bold uppercase tracking-wider mb-2">Total Assets</p>
+                <h2 className="text-3xl font-display font-bold text-slate-800 dark:text-white">{totalAssets}</h2>
+              </div>
+              <div onClick={() => setActiveKPI('Installed')} className="glass-panel p-5 rounded-2xl relative overflow-hidden group border-l-4 border-l-green-500 cursor-pointer hover:border-l-green-400 hover:scale-[1.01] transition-all">
+                <div className="absolute right-0 top-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity"><CheckCircle2 className="w-20 h-20 text-green-500" /></div>
+                <p className="text-slate-500 dark:text-slate-400 text-xs font-bold uppercase tracking-wider mb-2">Installed</p>
+                <h2 className="text-3xl font-display font-bold text-green-600 dark:text-green-400">{installedCount}</h2>
+              </div>
+              <div onClick={() => setActiveKPI('Spare')} className="glass-panel p-5 rounded-2xl relative overflow-hidden group border-l-4 border-l-blue-500 cursor-pointer hover:border-l-blue-400 hover:scale-[1.01] transition-all">
+                 <div className="absolute right-0 top-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity"><Box className="w-20 h-20 text-blue-500" /></div>
+                <p className="text-slate-500 dark:text-slate-400 text-xs font-bold uppercase tracking-wider mb-2">Spares</p>
+                <h2 className="text-3xl font-display font-bold text-blue-600 dark:text-blue-400">{spareCount}</h2>
+              </div>
+              <div onClick={() => setActiveKPI('Planned')} className="glass-panel p-5 rounded-2xl relative overflow-hidden group border-l-4 border-l-yellow-500 cursor-pointer hover:border-l-yellow-400 hover:scale-[1.01] transition-all">
+                 <div className="absolute right-0 top-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity"><Calendar className="w-20 h-20 text-yellow-500" /></div>
+                <p className="text-slate-500 dark:text-slate-400 text-xs font-bold uppercase tracking-wider mb-2">Planned</p>
+                <h2 className="text-3xl font-display font-bold text-yellow-600 dark:text-yellow-400">{plannedCount}</h2>
+              </div>
+            </div>
+
+            <div className="glass-panel rounded-2xl overflow-hidden border border-slate-300 dark:border-slate-700/50 shadow-2xl">
+              <div className="p-4 border-b border-slate-300 dark:border-slate-700/50 flex justify-between items-center bg-slate-100/50 dark:bg-slate-800/40">
+                <h3 className="font-display font-bold text-lg text-slate-800 dark:text-indigo-100 flex items-center gap-2">
+                  <LayoutDashboard className="w-5 h-5 text-indigo-500 dark:text-indigo-400" /> Asset Registry 
+                  {isDbConnected && <span className="text-[10px] bg-green-100 dark:bg-green-900/40 text-green-600 dark:text-green-400 border border-green-500/30 px-2 py-0.5 rounded-full flex items-center gap-1 animate-pulse"><Activity className="w-3 h-3"/> Live Sync</span>}
+                </h3>
+                {canEdit && <button onClick={() => setShowAddModal(true)} className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-xl transition-colors text-sm font-medium shadow-[0_0_15px_rgba(99,102,241,0.4)]"><Plus className="w-4 h-4" /> Add Asset</button>}
+              </div>
+              {dbError && (
+                 <div className="p-4 bg-red-500/10 border-b border-red-500/30 text-red-500 dark:text-red-400 text-sm flex items-center gap-2 justify-center">
+                    <AlertTriangle className="w-4 h-4"/> Connection Error: {dbError}
+                 </div>
+              )}
+              {dbLoading ? (
+                 <div className="p-12 text-center text-indigo-500 dark:text-indigo-400 flex flex-col items-center gap-4">
+                    <RefreshCcw className="w-8 h-8 animate-spin" />
+                    <p>Syncing with Cloud Database...</p>
+                 </div>
+              ) : (
+                  <div className="overflow-x-auto">
+                  <table className="w-full text-left text-sm">
+                      <thead className="bg-slate-200/50 dark:bg-slate-900/50 text-slate-500 dark:text-slate-400 text-xs uppercase tracking-wider font-semibold">
+                      <tr>
+                          {columns.map(col => <th key={col.id} className={`p-4 border-b border-slate-300 dark:border-slate-700 whitespace-nowrap ${col.width || ''}`}>{col.label}</th>)}
+                          {canEdit && <th className="p-4 border-b border-slate-300 dark:border-slate-700 text-right">Action</th>}
+                      </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-300/50 dark:divide-slate-700/30">
+                      {filteredInventory.map((item) => (
+                          <tr key={item.id} className="hover:bg-indigo-500/5 transition-colors group">
+                          {columns.map(col => (
+                              <td key={col.id} className="p-4 text-slate-700 dark:text-slate-300">
+                              {col.id === 'status' || col.label.toLowerCase().includes('status') ? (
+                                  <span className={`px-2 py-1 rounded-md text-[10px] uppercase font-bold tracking-wide border ${getStatusColor(item[col.id])}`}>{item[col.id]}</span>
+                              ) : col.type === 'date' ? (
+                                  <span className="font-mono text-xs text-slate-500 dark:text-slate-400">{item[col.id]}</span>
+                              ) : (
+                                  <span className={col.id === 'assetId' ? 'font-mono text-slate-900 dark:text-white font-medium' : ''}>{item[col.id]}</span>
+                              )}
+                              </td>
+                          ))}
+                          {canEdit && (
+                              <td className="p-4 text-right">
+                              <div className="flex justify-end gap-2">
+                                  <button onClick={() => setStatusModalItem(item)} className="p-2 text-slate-400 hover:text-indigo-500 dark:hover:text-indigo-400 hover:bg-indigo-500/10 rounded-lg transition-colors" title="Update Status"><ArrowRightLeft className="w-4 h-4" /></button>
+                                  <button onClick={() => handleDeleteItem(item.id)} className="p-2 text-slate-400 hover:text-red-500 dark:hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors" title="Delete Item"><Trash2 className="w-4 h-4" /></button>
+                              </div>
+                              </td>
+                          )}
+                          </tr>
+                      ))}
+                      {filteredInventory.length === 0 && <tr><td colSpan={columns.length + (canEdit ? 1 : 0)} className="p-12 text-center text-slate-500">No assets found matching your search.</td></tr>}
+                      </tbody>
+                  </table>
+                  </div>
+              )}
+            </div>
+            </>
+          )}
+
+          {/* TAB: ENGINEER VIEW */}
+          {activeTab === 'engineers' && (
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+              {engineers.map(eng => {
+                const { items, spares, installed } = getEngineerBreakdown(eng);
+                return (
+                  <div key={eng} onClick={() => setActiveEngineer(eng)} className="glass-panel rounded-2xl overflow-hidden border border-indigo-500/20 hover:border-indigo-500/50 hover:scale-[1.01] transition-all group cursor-pointer relative">
+                    <div className="p-5 bg-gradient-to-r from-indigo-100 to-slate-100 dark:from-indigo-900/40 dark:to-slate-900/40 border-b border-indigo-500/20 flex justify-between items-start">
+                      <div className="flex items-center gap-4">
+                        <div className="w-12 h-12 rounded-xl bg-indigo-600 flex items-center justify-center font-bold text-white text-xl shadow-lg shadow-indigo-500/30">{eng.charAt(0)}</div>
+                        <div><h3 className="font-bold text-slate-900 dark:text-white tracking-wide text-lg">{eng}</h3><p className="text-[10px] text-indigo-500 dark:text-indigo-300 uppercase tracking-wider">Field Engineer</p></div>
                       </div>
-                    ))}
+                      {/* Pie chart removed from here as requested */}
+                    </div>
+                    <div className="p-4 grid grid-cols-3 gap-2 text-center bg-slate-50 dark:bg-slate-800/20 border-b border-slate-300 dark:border-slate-700/50">
+                        <div><div className="text-[10px] text-slate-500 uppercase font-bold">Total</div><div className="font-mono font-bold text-slate-800 dark:text-white text-lg">{items.length}</div></div>
+                        <div><div className="text-[10px] text-slate-500 uppercase font-bold">Spare</div><div className="font-mono font-bold text-blue-600 dark:text-blue-400 text-lg">{spares}</div></div>
+                        <div><div className="text-[10px] text-slate-500 uppercase font-bold">Installed</div><div className="font-mono font-bold text-green-600 dark:text-green-400 text-lg">{installed}</div></div>
+                    </div>
+                    <div className="p-0">
+                      <ul className="divide-y divide-slate-300/30 dark:divide-slate-700/30 max-h-[250px] overflow-y-auto custom-scrollbar">
+                        {items.slice(0, 5).map(item => (
+                          <li key={item.id} className="p-3 hover:bg-slate-200/50 dark:hover:bg-slate-800/30 transition-colors">
+                             <div className="flex justify-between items-start mb-1"><span className="font-medium text-slate-700 dark:text-slate-200 text-sm truncate max-w-[150px]">{item.modelVariant || 'Unknown Item'}</span><span className={`text-[10px] px-1.5 rounded border ${getStatusColor(item.status)}`}>{item.status}</span></div>
+                             <div className="flex justify-between items-end"><div className="text-xs text-slate-500">{item.circle} {item.division && ` > ${item.division}`}</div><div className="text-xs font-mono text-slate-400 opacity-50">#{item.assetId}</div></div>
+                          </li>
+                        ))}
+                      </ul>
+                      {items.length > 5 && <div className="p-2 text-center text-xs text-indigo-500 dark:text-indigo-400 font-medium bg-slate-100 dark:bg-slate-800/30">View all {items.length} items...</div>}
+                    </div>
                   </div>
-                ) : <div className="text-center py-10 text-slate-500">No data available for this grouping.</div>}
-             </div>
-          </div>
-        )}
+                );
+              })}
+            </div>
+          )}
 
-        {/* View: History */}
-        {activeTab === 'history' && (
-          <div className="space-y-6">
-             <div className="glass-panel p-6 rounded-xl border-l-4 border-indigo-500">
-                <div className="flex flex-col md:flex-row justify-between items-end gap-4">
-                   <div className="flex flex-wrap gap-4 w-full md:w-auto">
-                      <div><label className="text-xs text-slate-400 uppercase font-bold block mb-1">Start Date</label><input type="date" className="bg-slate-800 border border-slate-600 rounded px-3 py-2 text-sm w-full md:w-40 focus:border-indigo-400 outline-none" value={dateRange.start} onChange={(e) => setDateRange(prev => ({...prev, start: e.target.value}))} /></div>
-                      <div><label className="text-xs text-slate-400 uppercase font-bold block mb-1">End Date</label><input type="date" className="bg-slate-800 border border-slate-600 rounded px-3 py-2 text-sm w-full md:w-40 focus:border-indigo-400 outline-none" value={dateRange.end} onChange={(e) => setDateRange(prev => ({...prev, end: e.target.value}))} /></div>
+          {/* TAB: ANALYTICS */}
+          {activeTab === 'charts' && (
+            <div className="space-y-6">
+               <div className="glass-panel p-5 rounded-2xl flex flex-wrap gap-6 items-end border border-indigo-500/20">
+                  <div>
+                     <label className="text-xs text-slate-500 dark:text-slate-400 uppercase font-bold block mb-2">Group By</label>
+                     <div className="relative">
+                        <select value={chartConfig.groupBy} onChange={(e) => setChartConfig(prev => ({...prev, groupBy: e.target.value}))} className="bg-[var(--input-bg)] border border-slate-300 dark:border-slate-600 rounded-xl px-4 py-2 text-sm min-w-[200px] focus:border-indigo-400 outline-none appearance-none text-slate-800 dark:text-white">
+                            {columns.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
+                        </select>
+                        <Filter className="w-4 h-4 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                     </div>
+                  </div>
+                  <div>
+                     <label className="text-xs text-slate-500 dark:text-slate-400 uppercase font-bold block mb-2">Metric</label>
+                     <select value={chartConfig.metric} onChange={(e) => setChartConfig(prev => ({...prev, metric: e.target.value}))} className="bg-[var(--input-bg)] border border-slate-300 dark:border-slate-600 rounded-xl px-4 py-2 text-sm min-w-[200px] focus:border-indigo-400 outline-none appearance-none text-slate-800 dark:text-white">
+                        <option value="count">Count Records</option>
+                        <option value="sum_nos">Sum of Quantities (NOS)</option>
+                     </select>
+                  </div>
+               </div>
+
+               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                   {/* Bar Chart */}
+                   <div className="glass-panel p-6 rounded-2xl border border-slate-300 dark:border-slate-700">
+                      <h3 className="text-lg font-bold mb-6 flex items-center gap-2 text-slate-800 dark:text-white"><BarChart3 className="text-indigo-500 dark:text-indigo-400" /> Distribution by {columns.find(c => c.id === chartConfig.groupBy)?.label || chartConfig.groupBy}</h3>
+                      {chartData.length > 0 ? (
+                        <div className="space-y-4">
+                          {chartData.map(([label, value], idx) => (
+                            <div key={label} className="relative group">
+                              <div className="flex justify-between text-xs mb-1.5"><span className="font-bold text-slate-700 dark:text-slate-300">{label}</span><span className="font-mono text-indigo-500 dark:text-indigo-300">{value}</span></div>
+                              <div className="w-full bg-slate-200 dark:bg-slate-800 h-3 rounded-full overflow-hidden"><div className="h-full bg-indigo-500 rounded-full transition-all duration-1000 ease-out shadow-[0_0_10px_rgba(99,102,241,0.5)] group-hover:bg-indigo-400" style={{ width: `${(value / maxChartValue) * 100}%`, animationDelay: `${idx * 50}ms` }} /></div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : <div className="text-center py-12 text-slate-500">No data available.</div>}
                    </div>
-                   <button onClick={handleExportCSV} className="w-full md:w-auto px-6 py-2.5 bg-green-600 hover:bg-green-500 text-white rounded-lg font-medium shadow-lg flex items-center justify-center gap-2 transition-all"><FileDown className="w-4 h-4" /> Export Filtered CSV</button>
-                </div>
-             </div>
-             <div className="glass-panel rounded-xl overflow-hidden border border-slate-700/50">
-               <div className="p-4 bg-slate-800/40 border-b border-slate-700"><h3 className="font-bold flex items-center gap-2 text-indigo-100"><CalendarRange className="w-4 h-4 text-indigo-400" /> Filtered Registry ({historyFilteredData.length} records)</h3></div>
-               <div className="overflow-x-auto max-h-[600px]">
-                 <table className="w-full text-left text-sm">
-                    <thead className="bg-slate-900/50 text-slate-400 text-xs uppercase tracking-wider font-semibold sticky top-0 z-10 backdrop-blur-md"><tr>{columns.map(col => <th key={col.id} className="p-3 border-b border-slate-700 whitespace-nowrap">{col.label}</th>)}</tr></thead>
-                    <tbody className="divide-y divide-slate-700/30">
-                      {historyFilteredData.map((item) => (
-                        <tr key={item.id} className="hover:bg-indigo-500/5 transition-colors">{columns.map(col => <td key={col.id} className="p-3 text-slate-300 whitespace-nowrap">{item[col.id]}</td>)}</tr>
-                      ))}
-                    </tbody>
-                 </table>
-               </div>
-             </div>
-          </div>
-        )}
 
-        {/* View: User Management */}
-        {activeTab === 'users' && canManageUsers && (
-          <div className="space-y-6">
-             <div className="glass-panel p-6 rounded-xl border border-indigo-500/30">
-               <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2"><UserPlus className="w-5 h-5 text-indigo-400" /> Create New User</h3>
-               <form onSubmit={handleCreateUser} className="flex flex-col md:flex-row gap-4 items-end">
-                 <div className="flex-1 w-full"><label className="text-xs text-slate-400 uppercase font-bold block mb-1">Username</label><input type="text" required value={newUserForm.username} onChange={e => setNewUserForm({...newUserForm, username: e.target.value})} className="w-full bg-slate-800/50 border border-slate-600 rounded px-3 py-2 text-sm focus:border-indigo-400 outline-none" /></div>
-                 <div className="flex-1 w-full"><label className="text-xs text-slate-400 uppercase font-bold block mb-1">Password</label><input type="text" required value={newUserForm.password} onChange={e => setNewUserForm({...newUserForm, password: e.target.value})} className="w-full bg-slate-800/50 border border-slate-600 rounded px-3 py-2 text-sm focus:border-indigo-400 outline-none" /></div>
-                 <div className="flex-1 w-full"><label className="text-xs text-slate-400 uppercase font-bold block mb-1">Role</label><select value={newUserForm.role} onChange={e => setNewUserForm({...newUserForm, role: e.target.value as UserRole})} className="w-full bg-slate-800/50 border border-slate-600 rounded px-3 py-2 text-sm focus:border-indigo-400 outline-none"><option value="viewer">Viewer</option><option value="editor">Editor</option><option value="superadmin">Super Admin</option></select></div>
-                 <button type="submit" className="w-full md:w-auto px-6 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded font-medium shadow-lg transition-colors">Add User</button>
-               </form>
-             </div>
-             <div className="glass-panel rounded-xl overflow-hidden border border-slate-700/50">
-               <div className="p-4 bg-slate-800/40 border-b border-slate-700"><h3 className="font-bold flex items-center gap-2 text-indigo-100"><Users className="w-5 h-5 text-indigo-400" /> User Directory {isDbConnected && <span className="text-[10px] bg-green-900/40 text-green-400 px-2 rounded">Synced</span>}</h3></div>
-               <div className="overflow-x-auto">
-                 <table className="w-full text-left text-sm">
-                    <thead className="bg-slate-900/50 text-slate-400 text-xs uppercase tracking-wider font-semibold"><tr><th className="p-3 border-b border-slate-700">Username</th><th className="p-3 border-b border-slate-700">Access Level</th><th className="p-3 border-b border-slate-700">Upgrade Access</th><th className="p-3 border-b border-slate-700 text-right">Actions</th></tr></thead>
-                    <tbody className="divide-y divide-slate-700/30">
-                      {users.map((u) => (
-                        <tr key={u.username} className="hover:bg-indigo-500/5 transition-colors">
-                          <td className="p-3 text-white font-medium">{u.username}</td>
-                          <td className="p-3"><span className={`px-2 py-0.5 rounded text-[10px] uppercase font-bold tracking-wide border ${getRoleBadgeColor(u.role)}`}>{u.role}</span></td>
-                          <td className="p-3">{u.username !== 'admin' && (<select value={u.role} onChange={(e) => handleUpdateRole(u.username, e.target.value as UserRole)} className="bg-slate-800 border border-slate-600 rounded px-2 py-1 text-xs focus:border-indigo-400 outline-none"><option value="viewer">Viewer</option><option value="editor">Editor</option><option value="superadmin">Super Admin</option></select>)}</td>
-                          <td className="p-3 text-right">{u.username !== 'admin' && <button onClick={() => handleDeleteUser(u.username)} className="p-1.5 text-slate-400 hover:text-red-400 hover:bg-red-500/10 rounded transition-colors"><Trash2 className="w-4 h-4" /></button>}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                 </table>
+                   {/* Pie Chart */}
+                   <div className="glass-panel p-6 rounded-2xl border border-slate-300 dark:border-slate-700 flex flex-col items-center justify-center min-h-[400px]">
+                        <h3 className="text-lg font-bold mb-8 flex items-center gap-2 text-slate-800 dark:text-white w-full"><PieChartIcon className="text-indigo-500 dark:text-indigo-400" /> Overall Status Breakdown</h3>
+                        <div className="relative">
+                            <SimplePieChart data={pieChartData} size={240} />
+                        </div>
+                        <div className="mt-8 grid grid-cols-2 gap-x-8 gap-y-2">
+                             {pieChartData.map(d => (
+                                 <div key={d.label} className="flex items-center gap-2">
+                                     <div className="w-3 h-3 rounded-full" style={{ backgroundColor: d.color }}></div>
+                                     <span className="text-xs text-slate-600 dark:text-slate-300">{d.label}</span>
+                                     <span className="text-xs font-mono font-bold text-slate-800 dark:text-white ml-auto">{d.value}</span>
+                                 </div>
+                             ))}
+                        </div>
+                   </div>
                </div>
-             </div>
-          </div>
-        )}
-      </main>
+            </div>
+          )}
+
+          {/* TAB: HISTORY */}
+          {activeTab === 'history' && (
+            <div className="space-y-6">
+               <div className="glass-panel p-6 rounded-2xl border-l-4 border-indigo-500">
+                  <div className="flex flex-col md:flex-row justify-between items-end gap-4">
+                     <div className="flex flex-wrap gap-4 w-full md:w-auto">
+                        <div><label className="text-xs text-slate-500 dark:text-slate-400 uppercase font-bold block mb-1">Start Date</label><input type="date" className="bg-[var(--input-bg)] border border-slate-300 dark:border-slate-600 rounded-xl px-4 py-2 text-sm w-full md:w-40 focus:border-indigo-400 outline-none text-slate-800 dark:text-white" value={dateRange.start} onChange={(e) => setDateRange(prev => ({...prev, start: e.target.value}))} /></div>
+                        <div><label className="text-xs text-slate-500 dark:text-slate-400 uppercase font-bold block mb-1">End Date</label><input type="date" className="bg-[var(--input-bg)] border border-slate-300 dark:border-slate-600 rounded-xl px-4 py-2 text-sm w-full md:w-40 focus:border-indigo-400 outline-none text-slate-800 dark:text-white" value={dateRange.end} onChange={(e) => setDateRange(prev => ({...prev, end: e.target.value}))} /></div>
+                     </div>
+                     <button onClick={handleExportCSV} className="w-full md:w-auto px-6 py-2.5 bg-green-600 hover:bg-green-500 text-white rounded-xl font-medium shadow-lg flex items-center justify-center gap-2 transition-all"><FileDown className="w-4 h-4" /> Export Filtered CSV</button>
+                  </div>
+               </div>
+               <div className="glass-panel rounded-2xl overflow-hidden border border-slate-300 dark:border-slate-700/50">
+                 <div className="p-4 bg-slate-100/50 dark:bg-slate-800/40 border-b border-slate-300 dark:border-slate-700"><h3 className="font-bold flex items-center gap-2 text-slate-800 dark:text-indigo-100"><CalendarRange className="w-4 h-4 text-indigo-500 dark:text-indigo-400" /> Filtered Registry ({historyFilteredData.length} records)</h3></div>
+                 <div className="overflow-x-auto max-h-[600px]">
+                   <table className="w-full text-left text-sm">
+                      <thead className="bg-slate-200/50 dark:bg-slate-900/50 text-slate-500 dark:text-slate-400 text-xs uppercase tracking-wider font-semibold sticky top-0 z-10 backdrop-blur-md"><tr>{columns.map(col => <th key={col.id} className="p-3 border-b border-slate-300 dark:border-slate-700 whitespace-nowrap">{col.label}</th>)}</tr></thead>
+                      <tbody className="divide-y divide-slate-300/50 dark:divide-slate-700/30">
+                        {historyFilteredData.map((item) => (
+                          <tr key={item.id} className="hover:bg-indigo-500/5 transition-colors">{columns.map(col => <td key={col.id} className="p-3 text-slate-700 dark:text-slate-300 whitespace-nowrap">{item[col.id]}</td>)}</tr>
+                        ))}
+                      </tbody>
+                   </table>
+                 </div>
+               </div>
+            </div>
+          )}
+
+          {/* TAB: USER ADMIN */}
+          {activeTab === 'users' && canManageUsers && (
+            <div className="space-y-6">
+               <div className="glass-panel p-6 rounded-2xl border border-indigo-500/30">
+                 <h3 className="text-lg font-bold text-slate-800 dark:text-white mb-4 flex items-center gap-2"><UserPlus className="w-5 h-5 text-indigo-500 dark:text-indigo-400" /> Create New User</h3>
+                 <form onSubmit={handleCreateUser} className="flex flex-col md:flex-row gap-4 items-end">
+                   <div className="flex-1 w-full"><label className="text-xs text-slate-500 dark:text-slate-400 uppercase font-bold block mb-1">Username</label><input type="text" required value={newUserForm.username} onChange={e => setNewUserForm({...newUserForm, username: e.target.value})} className="w-full bg-[var(--input-bg)] border border-slate-300 dark:border-slate-600 rounded-xl px-4 py-2 text-sm focus:border-indigo-400 outline-none text-slate-800 dark:text-white" /></div>
+                   <div className="flex-1 w-full"><label className="text-xs text-slate-500 dark:text-slate-400 uppercase font-bold block mb-1">Password</label><input type="text" required value={newUserForm.password} onChange={e => setNewUserForm({...newUserForm, password: e.target.value})} className="w-full bg-[var(--input-bg)] border border-slate-300 dark:border-slate-600 rounded-xl px-4 py-2 text-sm focus:border-indigo-400 outline-none text-slate-800 dark:text-white" /></div>
+                   <div className="flex-1 w-full"><label className="text-xs text-slate-500 dark:text-slate-400 uppercase font-bold block mb-1">Role</label><select value={newUserForm.role} onChange={e => setNewUserForm({...newUserForm, role: e.target.value as UserRole})} className="w-full bg-[var(--input-bg)] border border-slate-300 dark:border-slate-600 rounded-xl px-4 py-2 text-sm focus:border-indigo-400 outline-none text-slate-800 dark:text-white"><option value="viewer">Viewer</option><option value="editor">Editor</option><option value="superadmin">Super Admin</option></select></div>
+                   <button type="submit" className="w-full md:w-auto px-6 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-medium shadow-lg transition-colors">Add User</button>
+                 </form>
+               </div>
+               <div className="glass-panel rounded-2xl overflow-hidden border border-slate-300 dark:border-slate-700/50">
+                 <div className="p-4 bg-slate-100/50 dark:bg-slate-800/40 border-b border-slate-300 dark:border-slate-700"><h3 className="font-bold flex items-center gap-2 text-slate-800 dark:text-indigo-100"><Users className="w-5 h-5 text-indigo-500 dark:text-indigo-400" /> User Directory {isDbConnected && <span className="text-[10px] bg-green-100 dark:bg-green-900/40 text-green-600 dark:text-green-400 px-2 rounded">Synced</span>}</h3></div>
+                 <div className="overflow-x-auto">
+                   <table className="w-full text-left text-sm">
+                      <thead className="bg-slate-200/50 dark:bg-slate-900/50 text-slate-500 dark:text-slate-400 text-xs uppercase tracking-wider font-semibold"><tr><th className="p-3 border-b border-slate-300 dark:border-slate-700">Username</th><th className="p-3 border-b border-slate-300 dark:border-slate-700">Access Level</th><th className="p-3 border-b border-slate-300 dark:border-slate-700">Upgrade Access</th><th className="p-3 border-b border-slate-300 dark:border-slate-700 text-right">Actions</th></tr></thead>
+                      <tbody className="divide-y divide-slate-300/50 dark:divide-slate-700/30">
+                        {users.map((u) => (
+                          <tr key={u.username} className="hover:bg-indigo-500/5 transition-colors">
+                            <td className="p-3 text-slate-900 dark:text-white font-medium">{u.username}</td>
+                            <td className="p-3"><span className={`px-2 py-0.5 rounded text-[10px] uppercase font-bold tracking-wide border ${getRoleBadgeColor(u.role)}`}>{u.role}</span></td>
+                            <td className="p-3">{u.username !== 'admin' && (<select value={u.role} onChange={(e) => handleUpdateRole(u.username, e.target.value as UserRole)} className="bg-[var(--input-bg)] border border-slate-300 dark:border-slate-600 rounded px-2 py-1 text-xs focus:border-indigo-400 outline-none text-slate-800 dark:text-white"><option value="viewer">Viewer</option><option value="editor">Editor</option><option value="superadmin">Super Admin</option></select>)}</td>
+                            <td className="p-3 text-right">{u.username !== 'admin' && <button onClick={() => handleDeleteUser(u.username)} className="p-1.5 text-slate-400 hover:text-red-500 dark:hover:text-red-400 hover:bg-red-500/10 rounded transition-colors"><Trash2 className="w-4 h-4" /></button>}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                   </table>
+                 </div>
+               </div>
+            </div>
+          )}
+
+        </main>
+      </div>
 
       {/* MODAL: Cloud Database Config */}
       {showDbModal && (
          <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[90] flex items-center justify-center p-4">
              <div className="glass-panel w-full max-w-lg rounded-2xl border border-indigo-500/30 shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
-                 <div className="p-5 border-b border-slate-700 bg-slate-900/50 flex justify-between items-center">
-                    <h2 className="text-xl font-bold text-white flex items-center gap-2"><Database className="text-indigo-400"/> Database Setup</h2>
-                    <button onClick={() => setShowDbModal(false)}><X className="text-slate-400 hover:text-white"/></button>
+                 <div className="p-5 border-b border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-900/50 flex justify-between items-center">
+                    <h2 className="text-xl font-bold text-slate-900 dark:text-white flex items-center gap-2"><Database className="text-indigo-500 dark:text-indigo-400"/> Database Setup</h2>
+                    <button onClick={() => setShowDbModal(false)}><X className="text-slate-400 hover:text-slate-800 dark:hover:text-white"/></button>
                  </div>
                  
                  <div className="p-6 overflow-y-auto">
                     {!isDbConnected ? (
                         <>
-                           <div className="mb-6 bg-indigo-900/20 border border-indigo-500/30 p-4 rounded-xl text-sm text-indigo-200">
+                           <div className="mb-6 bg-indigo-100 dark:bg-indigo-900/20 border border-indigo-500/30 p-4 rounded-xl text-sm text-indigo-700 dark:text-indigo-200">
                                <p className="font-bold mb-2">Connect to Supabase (PostgreSQL)</p>
-                               <p className="text-xs text-slate-400 mb-2">This will enable real-time cloud sync, backups, and multi-device access.</p>
-                               <ol className="list-decimal pl-4 space-y-1 text-xs text-slate-300">
-                                   <li>Create a free project at <a href="https://supabase.com" target="_blank" className="text-indigo-400 underline">supabase.com</a></li>
+                               <p className="text-xs text-slate-500 dark:text-slate-400 mb-2">This will enable real-time cloud sync, backups, and multi-device access.</p>
+                               <ol className="list-decimal pl-4 space-y-1 text-xs text-slate-600 dark:text-slate-300">
+                                   <li>Create a free project at <a href="https://supabase.com" target="_blank" className="text-indigo-500 dark:text-indigo-400 underline">supabase.com</a></li>
                                    <li>Go to <strong>Project Settings &gt; API</strong></li>
                                    <li>Copy <strong>Project URL</strong> and <strong>anon public key</strong> below</li>
                                </ol>
@@ -1131,31 +1264,31 @@ alter publication supabase_realtime add table app_config;
                            <form onSubmit={handleConnectDb} className="space-y-4">
                                <div>
                                    <label className="text-xs uppercase font-bold text-slate-500 block mb-1">Project URL</label>
-                                   <input name="dbUrl" required type="url" placeholder="https://xyz.supabase.co" className="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white text-sm" />
+                                   <input name="dbUrl" required type="url" placeholder="https://xyz.supabase.co" className="w-full bg-[var(--input-bg)] border border-slate-300 dark:border-slate-600 rounded p-2 text-slate-900 dark:text-white text-sm" />
                                </div>
                                <div>
                                    <label className="text-xs uppercase font-bold text-slate-500 block mb-1">Anon Public Key</label>
-                                   <input name="dbKey" required type="password" placeholder="eyJh..." className="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white text-sm" />
+                                   <input name="dbKey" required type="password" placeholder="eyJh..." className="w-full bg-[var(--input-bg)] border border-slate-300 dark:border-slate-600 rounded p-2 text-slate-900 dark:text-white text-sm" />
                                </div>
                                <button type="submit" className="w-full py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded font-medium shadow-lg">Connect & Sync</button>
                            </form>
                         </>
                     ) : (
                         <div className="text-center space-y-4">
-                            <div className="w-16 h-16 bg-green-500/20 rounded-full flex items-center justify-center mx-auto text-green-400"><Cloud className="w-8 h-8"/></div>
+                            <div className="w-16 h-16 bg-green-500/20 rounded-full flex items-center justify-center mx-auto text-green-500 dark:text-green-400"><Cloud className="w-8 h-8"/></div>
                             <div>
-                                <h3 className="text-lg font-bold text-white">Cloud Connected</h3>
-                                <p className="text-sm text-slate-400">Your data is syncing with Supabase.</p>
+                                <h3 className="text-lg font-bold text-slate-900 dark:text-white">Cloud Connected</h3>
+                                <p className="text-sm text-slate-500 dark:text-slate-400">Your data is syncing with Supabase.</p>
                             </div>
-                            <button onClick={handleDisconnectDb} className="px-4 py-2 border border-red-500/40 text-red-400 hover:bg-red-500/10 rounded-lg text-sm">Disconnect</button>
+                            <button onClick={handleDisconnectDb} className="px-4 py-2 border border-red-500/40 text-red-500 dark:text-red-400 hover:bg-red-500/10 rounded-lg text-sm">Disconnect</button>
                         </div>
                     )}
                     
-                    <div className="mt-8 pt-6 border-t border-slate-700">
-                        <h4 className="text-sm font-bold text-white mb-2 flex items-center gap-2"><Settings className="w-4 h-4"/> First Time Setup Script</h4>
-                        <p className="text-xs text-slate-400 mb-3">Copy this SQL and run it in your Supabase <strong>SQL Editor</strong> to create the necessary tables.</p>
+                    <div className="mt-8 pt-6 border-t border-slate-300 dark:border-slate-700">
+                        <h4 className="text-sm font-bold text-slate-800 dark:text-white mb-2 flex items-center gap-2"><Settings className="w-4 h-4"/> First Time Setup Script</h4>
+                        <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">Copy this SQL and run it in your Supabase <strong>SQL Editor</strong> to create the necessary tables.</p>
                         <div className="relative">
-                            <div className="bg-slate-950 p-3 rounded-lg border border-slate-800 text-[10px] font-mono text-slate-400 h-32 overflow-y-auto">
+                            <div className="bg-slate-100 dark:bg-slate-950 p-3 rounded-lg border border-slate-200 dark:border-slate-800 text-[10px] font-mono text-slate-600 dark:text-slate-400 h-32 overflow-y-auto">
                                 <pre>
 {`create table if not exists assets (
   id text primary key,
@@ -1181,10 +1314,10 @@ create policy "Public Config Access" on app_config for all using (true) with che
                             </div>
                             <button 
                                 onClick={copySql} 
-                                className="absolute top-2 right-2 p-1.5 bg-slate-700 hover:bg-slate-600 rounded text-white shadow-lg"
+                                className="absolute top-2 right-2 p-1.5 bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 rounded text-slate-800 dark:text-white shadow-lg"
                                 title="Copy SQL"
                             >
-                                {sqlCopied ? <Check className="w-4 h-4 text-green-400"/> : <Copy className="w-4 h-4"/>}
+                                {sqlCopied ? <Check className="w-4 h-4 text-green-500"/> : <Copy className="w-4 h-4"/>}
                             </button>
                         </div>
                     </div>
@@ -1197,8 +1330,8 @@ create policy "Public Config Access" on app_config for all using (true) with che
       {activeKPI && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[80] flex items-center justify-center p-4">
           <div className="glass-panel w-full max-w-2xl max-h-[80vh] flex flex-col rounded-2xl border border-indigo-500/30 shadow-2xl">
-             <div className="p-5 border-b border-slate-700 bg-slate-900/50 flex justify-between items-center"><h2 className="text-xl font-display font-bold text-white flex items-center gap-2"><Package className="text-indigo-400" /> {activeKPI} Details</h2><button onClick={() => setActiveKPI(null)} className="text-slate-400 hover:text-white p-2 hover:bg-slate-800 rounded-lg"><X /></button></div>
-             <div className="flex-1 overflow-y-auto p-0"><table className="w-full text-left text-sm"><thead className="bg-slate-800 text-slate-400 text-xs uppercase font-bold sticky top-0 z-10"><tr><th className="p-4 border-b border-slate-700">Material Type / Model</th><th className="p-4 border-b border-slate-700 text-right">Quantity</th></tr></thead><tbody className="divide-y divide-slate-700/30">{getKPIBreakdown(activeKPI).map(([name, count]) => (<tr key={name} className="hover:bg-slate-800/30"><td className="p-4 text-slate-200 font-medium">{name}</td><td className="p-4 text-right font-mono text-indigo-300 font-bold">{count}</td></tr>))}{getKPIBreakdown(activeKPI).length === 0 && <tr><td colSpan={2} className="p-6 text-center text-slate-500">No records found.</td></tr>}</tbody></table></div>
+             <div className="p-5 border-b border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-900/50 flex justify-between items-center"><h2 className="text-xl font-display font-bold text-slate-900 dark:text-white flex items-center gap-2"><Package className="text-indigo-500 dark:text-indigo-400" /> {activeKPI} Details</h2><button onClick={() => setActiveKPI(null)} className="text-slate-400 hover:text-slate-800 dark:hover:text-white p-2 hover:bg-slate-200 dark:hover:bg-slate-800 rounded-lg"><X /></button></div>
+             <div className="flex-1 overflow-y-auto p-0"><table className="w-full text-left text-sm"><thead className="bg-slate-200 dark:bg-slate-800 text-slate-500 dark:text-slate-400 text-xs uppercase font-bold sticky top-0 z-10"><tr><th className="p-4 border-b border-slate-300 dark:border-slate-700">Material Type / Model</th><th className="p-4 border-b border-slate-300 dark:border-slate-700 text-right">Quantity</th></tr></thead><tbody className="divide-y divide-slate-300/50 dark:divide-slate-700/30">{getKPIBreakdown(activeKPI).map(([name, count]) => (<tr key={name} className="hover:bg-slate-200/50 dark:hover:bg-slate-800/30"><td className="p-4 text-slate-700 dark:text-slate-200 font-medium">{name}</td><td className="p-4 text-right font-mono text-indigo-600 dark:text-indigo-300 font-bold">{count}</td></tr>))}{getKPIBreakdown(activeKPI).length === 0 && <tr><td colSpan={2} className="p-6 text-center text-slate-500">No records found.</td></tr>}</tbody></table></div>
           </div>
         </div>
       )}
@@ -1207,18 +1340,35 @@ create policy "Public Config Access" on app_config for all using (true) with che
       {activeEngineer && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[80] flex items-center justify-center p-4">
           <div className="glass-panel w-full max-w-4xl max-h-[90vh] flex flex-col rounded-2xl border border-indigo-500/30 shadow-2xl">
-             <div className="p-5 border-b border-slate-700 bg-slate-900/50 flex justify-between items-center"><div className="flex items-center gap-3"><div className="w-10 h-10 rounded-lg bg-indigo-600 flex items-center justify-center font-bold text-white text-lg">{activeEngineer.charAt(0)}</div><div><h2 className="text-xl font-display font-bold text-white">{activeEngineer}</h2><p className="text-xs text-indigo-300 uppercase tracking-wider">Inventory Dashboard</p></div></div><button onClick={() => setActiveEngineer(null)} className="text-slate-400 hover:text-white p-2 hover:bg-slate-800 rounded-lg"><X /></button></div>
+             <div className="p-5 border-b border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-900/50 flex justify-between items-center"><div className="flex items-center gap-3"><div className="w-10 h-10 rounded-lg bg-indigo-600 flex items-center justify-center font-bold text-white text-lg">{activeEngineer.charAt(0)}</div><div><h2 className="text-xl font-display font-bold text-slate-900 dark:text-white">{activeEngineer}</h2><p className="text-xs text-indigo-500 dark:text-indigo-300 uppercase tracking-wider">Inventory Dashboard</p></div></div><button onClick={() => setActiveEngineer(null)} className="text-slate-400 hover:text-slate-800 dark:hover:text-white p-2 hover:bg-slate-200 dark:hover:bg-slate-800 rounded-lg"><X /></button></div>
              <div className="flex-1 overflow-y-auto p-6 space-y-6">
+                
+                {/* Pop-up Pie Chart Area */}
+                <div className="flex flex-col md:flex-row gap-6 items-center justify-center p-4 bg-slate-100 dark:bg-slate-800/30 rounded-2xl border border-slate-300 dark:border-slate-700/50">
+                   <div className="relative">
+                       <SimplePieChart data={getEngineerBreakdown(activeEngineer).pieData} size={160} />
+                   </div>
+                   <div className="grid grid-cols-2 gap-4">
+                       {getEngineerBreakdown(activeEngineer).pieData.map(d => (
+                           <div key={d.label} className="flex items-center gap-2">
+                               <div className="w-3 h-3 rounded-full" style={{ backgroundColor: d.color }}></div>
+                               <span className="text-sm text-slate-600 dark:text-slate-300 font-medium">{d.label}</span>
+                               <span className="text-sm font-bold text-slate-800 dark:text-white">{d.value}</span>
+                           </div>
+                       ))}
+                   </div>
+                </div>
+
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                   <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700 text-center"><div className="text-xs text-slate-400 uppercase font-bold mb-1">Spares</div><div className="text-2xl font-bold text-blue-400">{getEngineerBreakdown(activeEngineer).spares}</div></div>
-                   <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700 text-center"><div className="text-xs text-slate-400 uppercase font-bold mb-1">Installed</div><div className="text-2xl font-bold text-green-400">{getEngineerBreakdown(activeEngineer).installed}</div></div>
-                   <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700 text-center"><div className="text-xs text-slate-400 uppercase font-bold mb-1">Returned</div><div className="text-2xl font-bold text-purple-400">{getEngineerBreakdown(activeEngineer).returned}</div></div>
-                   <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700 text-center"><div className="text-xs text-slate-400 uppercase font-bold mb-1">Planned</div><div className="text-2xl font-bold text-yellow-400">{getEngineerBreakdown(activeEngineer).planned}</div></div>
+                   <div className="bg-slate-100 dark:bg-slate-800/50 p-4 rounded-xl border border-slate-300 dark:border-slate-700 text-center"><div className="text-xs text-slate-500 dark:text-slate-400 uppercase font-bold mb-1">Spares</div><div className="text-2xl font-bold text-blue-600 dark:text-blue-400">{getEngineerBreakdown(activeEngineer).spares}</div></div>
+                   <div className="bg-slate-100 dark:bg-slate-800/50 p-4 rounded-xl border border-slate-300 dark:border-slate-700 text-center"><div className="text-xs text-slate-500 dark:text-slate-400 uppercase font-bold mb-1">Installed</div><div className="text-2xl font-bold text-green-600 dark:text-green-400">{getEngineerBreakdown(activeEngineer).installed}</div></div>
+                   <div className="bg-slate-100 dark:bg-slate-800/50 p-4 rounded-xl border border-slate-300 dark:border-slate-700 text-center"><div className="text-xs text-slate-500 dark:text-slate-400 uppercase font-bold mb-1">Returned</div><div className="text-2xl font-bold text-purple-600 dark:text-purple-400">{getEngineerBreakdown(activeEngineer).returned}</div></div>
+                   <div className="bg-slate-100 dark:bg-slate-800/50 p-4 rounded-xl border border-slate-300 dark:border-slate-700 text-center"><div className="text-xs text-slate-500 dark:text-slate-400 uppercase font-bold mb-1">Planned</div><div className="text-2xl font-bold text-yellow-600 dark:text-yellow-400">{getEngineerBreakdown(activeEngineer).planned}</div></div>
                 </div>
                 <div>
-                   <h3 className="text-sm font-bold text-slate-300 uppercase mb-3 flex items-center gap-2"><ClipboardList className="w-4 h-4" /> Complete Asset List</h3>
-                   <div className="bg-slate-800/30 rounded-xl overflow-hidden border border-slate-700/50">
-                      <table className="w-full text-left text-sm"><thead className="bg-slate-900/50 text-slate-400 text-xs uppercase font-bold"><tr><th className="p-3">Asset ID</th><th className="p-3">Material / Model</th><th className="p-3">Location</th><th className="p-3 text-right">Status</th></tr></thead><tbody className="divide-y divide-slate-700/30">{getEngineerBreakdown(activeEngineer).items.map(item => (<tr key={item.id} className="hover:bg-indigo-500/5"><td className="p-3 font-mono text-slate-400 text-xs">{item.assetId}</td><td className="p-3 font-medium text-slate-200">{item.materialType} <span className="text-slate-500">/</span> {item.modelVariant}</td><td className="p-3 text-slate-400 text-xs">{item.circle} {item.division && `> ${item.division}`}</td><td className="p-3 text-right"><span className={`px-2 py-0.5 rounded text-[10px] uppercase font-bold tracking-wide border ${getStatusColor(item.status)}`}>{item.status}</span></td></tr>))}</tbody></table>
+                   <h3 className="text-sm font-bold text-slate-700 dark:text-slate-300 uppercase mb-3 flex items-center gap-2"><ClipboardList className="w-4 h-4" /> Complete Asset List</h3>
+                   <div className="bg-slate-100/50 dark:bg-slate-800/30 rounded-xl overflow-hidden border border-slate-300 dark:border-slate-700/50">
+                      <table className="w-full text-left text-sm"><thead className="bg-slate-200/50 dark:bg-slate-900/50 text-slate-500 dark:text-slate-400 text-xs uppercase font-bold"><tr><th className="p-3">Asset ID</th><th className="p-3">Material / Model</th><th className="p-3">Location</th><th className="p-3 text-right">Status</th></tr></thead><tbody className="divide-y divide-slate-300/50 dark:divide-slate-700/30">{getEngineerBreakdown(activeEngineer).items.map(item => (<tr key={item.id} className="hover:bg-indigo-500/5"><td className="p-3 font-mono text-slate-500 dark:text-slate-400 text-xs">{item.assetId}</td><td className="p-3 font-medium text-slate-800 dark:text-slate-200">{item.materialType} <span className="text-slate-400">/</span> {item.modelVariant}</td><td className="p-3 text-slate-500 dark:text-slate-400 text-xs">{item.circle} {item.division && `> ${item.division}`}</td><td className="p-3 text-right"><span className={`px-2 py-0.5 rounded text-[10px] uppercase font-bold tracking-wide border ${getStatusColor(item.status)}`}>{item.status}</span></td></tr>))}</tbody></table>
                    </div>
                 </div>
              </div>
@@ -1230,25 +1380,25 @@ create policy "Public Config Access" on app_config for all using (true) with che
       {showCustomizeModal && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="glass-panel w-full max-w-4xl h-[80vh] rounded-2xl border border-indigo-500/30 shadow-2xl flex flex-col overflow-hidden">
-             <div className="p-5 border-b border-slate-700 bg-slate-900/50 flex justify-between items-center"><div><h2 className="text-xl font-display font-bold text-white flex items-center gap-2"><List className="text-indigo-400" /> Form & Table Builder</h2><p className="text-xs text-slate-400 mt-1">Design your inventory schema. All fields are fully customizable.</p></div><button onClick={() => setShowCustomizeModal(false)} className="text-slate-400 hover:text-white p-2 hover:bg-slate-800 rounded-lg"><X /></button></div>
-             <div className="flex-1 overflow-y-auto p-6 bg-slate-900/30 space-y-4">
+             <div className="p-5 border-b border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-900/50 flex justify-between items-center"><div><h2 className="text-xl font-display font-bold text-slate-900 dark:text-white flex items-center gap-2"><List className="text-indigo-500 dark:text-indigo-400" /> Form & Table Builder</h2><p className="text-xs text-slate-500 dark:text-slate-400 mt-1">Design your inventory schema. All fields are fully customizable.</p></div><button onClick={() => setShowCustomizeModal(false)} className="text-slate-400 hover:text-slate-800 dark:hover:text-white p-2 hover:bg-slate-200 dark:hover:bg-slate-800 rounded-lg"><X /></button></div>
+             <div className="flex-1 overflow-y-auto p-6 bg-slate-100 dark:bg-slate-900/30 space-y-4">
                {columns.map((col, index) => (
-                 <div key={col.id} className="bg-slate-800/80 p-4 rounded-xl border border-slate-700 hover:border-indigo-500/50 transition-all shadow-md group">
+                 <div key={col.id} className="bg-slate-200/80 dark:bg-slate-800/80 p-4 rounded-xl border border-slate-300 dark:border-slate-700 hover:border-indigo-500/50 transition-all shadow-md group">
                    <div className="flex flex-col md:flex-row gap-4 items-start md:items-center">
-                     <div className="p-2 bg-slate-700 rounded text-slate-400 cursor-move"><List className="w-4 h-4" /></div>
+                     <div className="p-2 bg-slate-300 dark:bg-slate-700 rounded text-slate-500 dark:text-slate-400 cursor-move"><List className="w-4 h-4" /></div>
                      <div className="flex-1 grid grid-cols-1 md:grid-cols-3 gap-4 w-full">
-                       <div><label className="text-[10px] uppercase text-slate-500 font-bold mb-1 block">Field Label</label><input type="text" value={col.label} onChange={(e) => handleUpdateColumn(index, { label: e.target.value })} className="w-full bg-slate-900 border border-slate-600 rounded px-3 py-2 text-sm text-white focus:border-indigo-400 focus:outline-none" /></div>
-                       <div><label className="text-[10px] uppercase text-slate-500 font-bold mb-1 block">Data Type</label><select value={col.type} onChange={(e) => handleUpdateColumn(index, { type: e.target.value as FieldType })} className="w-full bg-slate-900 border border-slate-600 rounded px-3 py-2 text-sm text-white focus:border-indigo-400 focus:outline-none"><option value="text">Short Text</option><option value="number">Number</option><option value="date">Date</option><option value="select">Dropdown</option><option value="textarea">Paragraph</option></select></div>
-                       {col.type === 'select' && (<div><label className="text-[10px] uppercase text-slate-500 font-bold mb-1 block">Options (comma sep)</label><input type="text" value={col.options?.join(', ') || ''} onChange={(e) => handleUpdateColumn(index, { options: e.target.value.split(',').map(s => s.trim()) })} className="w-full bg-slate-900 border border-slate-600 rounded px-3 py-2 text-sm text-white focus:border-indigo-400 focus:outline-none" /></div>)}
+                       <div><label className="text-[10px] uppercase text-slate-500 font-bold mb-1 block">Field Label</label><input type="text" value={col.label} onChange={(e) => handleUpdateColumn(index, { label: e.target.value })} className="w-full bg-[var(--input-bg)] border border-slate-300 dark:border-slate-600 rounded px-3 py-2 text-sm text-slate-800 dark:text-white focus:border-indigo-400 focus:outline-none" /></div>
+                       <div><label className="text-[10px] uppercase text-slate-500 font-bold mb-1 block">Data Type</label><select value={col.type} onChange={(e) => handleUpdateColumn(index, { type: e.target.value as FieldType })} className="w-full bg-[var(--input-bg)] border border-slate-300 dark:border-slate-600 rounded px-3 py-2 text-sm text-slate-800 dark:text-white focus:border-indigo-400 focus:outline-none"><option value="text">Short Text</option><option value="number">Number</option><option value="date">Date</option><option value="select">Dropdown</option><option value="textarea">Paragraph</option></select></div>
+                       {col.type === 'select' && (<div><label className="text-[10px] uppercase text-slate-500 font-bold mb-1 block">Options (comma sep)</label><input type="text" value={col.options?.join(', ') || ''} onChange={(e) => handleUpdateColumn(index, { options: e.target.value.split(',').map(s => s.trim()) })} className="w-full bg-[var(--input-bg)] border border-slate-300 dark:border-slate-600 rounded px-3 py-2 text-sm text-slate-800 dark:text-white focus:border-indigo-400 focus:outline-none" /></div>)}
                      </div>
-                     <div className="flex items-center gap-2 pt-5"><button onClick={() => handleDeleteColumn(index)} className="p-2 text-slate-500 hover:text-red-400 hover:bg-red-500/10 rounded transition-colors" title="Delete Field"><Trash2 className="w-4 h-4" /></button></div>
+                     <div className="flex items-center gap-2 pt-5"><button onClick={() => handleDeleteColumn(index)} className="p-2 text-slate-500 hover:text-red-500 dark:hover:text-red-400 hover:bg-red-500/10 rounded transition-colors" title="Delete Field"><Trash2 className="w-4 h-4" /></button></div>
                    </div>
                  </div>
                ))}
-               <button onClick={handleAddColumn} className="w-full py-4 border-2 border-dashed border-slate-700 rounded-xl text-slate-400 hover:text-indigo-400 hover:border-indigo-500/50 hover:bg-slate-800/30 transition-all flex flex-col items-center justify-center gap-2"><Plus className="w-6 h-6" /><span className="font-medium text-sm">Add New Field</span></button>
+               <button onClick={handleAddColumn} className="w-full py-4 border-2 border-dashed border-slate-300 dark:border-slate-700 rounded-xl text-slate-500 dark:text-slate-400 hover:text-indigo-500 dark:hover:text-indigo-400 hover:border-indigo-500/50 hover:bg-slate-200 dark:hover:bg-slate-800/30 transition-all flex flex-col items-center justify-center gap-2"><Plus className="w-6 h-6" /><span className="font-medium text-sm">Add New Field</span></button>
              </div>
-             <div className="p-5 border-t border-slate-700 bg-slate-900 flex justify-between items-center">
-               <button onClick={handleResetData} className="px-4 py-2 border border-red-500/50 text-red-400 hover:bg-red-500/10 rounded-lg text-sm flex items-center gap-2"><RefreshCcw className="w-3 h-3" /> Reset / Clear Local Data</button>
+             <div className="p-5 border-t border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-900 flex justify-between items-center">
+               <button onClick={handleResetData} className="px-4 py-2 border border-red-500/50 text-red-500 dark:text-red-400 hover:bg-red-500/10 rounded-lg text-sm flex items-center gap-2"><RefreshCcw className="w-3 h-3" /> Reset / Clear Local Data</button>
                <button onClick={handleSaveColumns} className="px-6 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg font-medium shadow-lg hover:shadow-indigo-500/25 transition-all">Save & Apply Schema</button>
              </div>
           </div>
@@ -1259,11 +1409,11 @@ create policy "Public Config Access" on app_config for all using (true) with che
       {showInstallModal && (
          <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[60] flex items-center justify-center p-6">
             <div className="glass-panel p-6 rounded-2xl w-full max-w-sm text-center border border-green-500/30 shadow-[0_0_50px_rgba(34,197,94,0.2)]">
-               <div className="w-16 h-16 bg-green-500/20 rounded-full flex items-center justify-center mx-auto mb-4"><Smartphone className="w-8 h-8 text-green-400" /></div>
-               <h3 className="text-xl font-bold text-white mb-2">Install App</h3>
-               <p className="text-slate-300 text-sm mb-6 leading-relaxed"><strong>Looking for an APK?</strong> <br/> This is a Progressive Web App (PWA). It installs directly from the browser and functions exactly like a native Android app.</p>
-               <ol className="text-left text-sm text-slate-300 space-y-3 bg-slate-800/50 p-4 rounded-xl mb-6 border border-slate-700"><li className="flex gap-3 items-start"><span className="bg-slate-700 w-5 h-5 flex items-center justify-center rounded-full text-xs font-bold shrink-0">1</span><span>Tap the <span className="text-white font-bold">Menu</span> icon (3 dots) in your browser.</span></li><li className="flex gap-3 items-start"><span className="bg-slate-700 w-5 h-5 flex items-center justify-center rounded-full text-xs font-bold shrink-0">2</span><span>Select <span className="text-white font-bold flex items-center gap-1"><Share className="w-3 h-3" /> Add to Home Screen</span> or <span className="text-white font-bold">Install App</span>.</span></li></ol>
-               <button onClick={() => setShowInstallModal(false)} className="w-full py-3 bg-slate-700 hover:bg-slate-600 rounded-xl text-white font-medium transition-colors">Got it</button>
+               <div className="w-16 h-16 bg-green-500/20 rounded-full flex items-center justify-center mx-auto mb-4"><Smartphone className="w-8 h-8 text-green-500 dark:text-green-400" /></div>
+               <h3 className="text-xl font-bold text-slate-900 dark:text-white mb-2">Install App</h3>
+               <p className="text-slate-500 dark:text-slate-300 text-sm mb-6 leading-relaxed"><strong>Looking for an APK?</strong> <br/> This is a Progressive Web App (PWA). It installs directly from the browser and functions exactly like a native Android app.</p>
+               <ol className="text-left text-sm text-slate-600 dark:text-slate-300 space-y-3 bg-slate-100 dark:bg-slate-800/50 p-4 rounded-xl mb-6 border border-slate-300 dark:border-slate-700"><li className="flex gap-3 items-start"><span className="bg-slate-300 dark:bg-slate-700 w-5 h-5 flex items-center justify-center rounded-full text-xs font-bold shrink-0">1</span><span>Tap the <span className="text-slate-900 dark:text-white font-bold">Menu</span> icon (3 dots) in your browser.</span></li><li className="flex gap-3 items-start"><span className="bg-slate-300 dark:bg-slate-700 w-5 h-5 flex items-center justify-center rounded-full text-xs font-bold shrink-0">2</span><span>Select <span className="text-slate-900 dark:text-white font-bold flex items-center gap-1"><Share className="w-3 h-3" /> Add to Home Screen</span> or <span className="text-slate-900 dark:text-white font-bold">Install App</span>.</span></li></ol>
+               <button onClick={() => setShowInstallModal(false)} className="w-full py-3 bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 rounded-xl text-slate-800 dark:text-white font-medium transition-colors">Got it</button>
             </div>
          </div>
       )}
@@ -1272,11 +1422,11 @@ create policy "Public Config Access" on app_config for all using (true) with che
       {statusModalItem && canEdit && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[70] flex items-center justify-center p-4">
           <div className="glass-panel p-6 rounded-2xl w-full max-w-sm border border-indigo-500/30">
-              <h3 className="text-lg font-bold text-white mb-4">Update Status</h3>
-              <p className="text-slate-400 text-sm mb-6">Select new status for item <span className="text-white font-mono">{statusModalItem.assetId || 'Unknown'}</span>:</p>
+              <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-4">Update Status</h3>
+              <p className="text-slate-500 dark:text-slate-400 text-sm mb-6">Select new status for item <span className="text-slate-800 dark:text-white font-mono">{statusModalItem.assetId || 'Unknown'}</span>:</p>
               <div className="grid grid-cols-1 gap-3">
                   {['Installed', 'Spare', 'Returned'].map(status => (<button key={status} onClick={() => handleQuickStatusUpdate(status)} className={`p-3 rounded-lg border text-left font-medium transition-all flex items-center justify-between group ${getStatusColor(status)} hover:bg-white/5`}>{status}<div className={`w-3 h-3 rounded-full ${getStatusColor(status).split(' ')[0].replace('/20', '')}`} /></button>))}
-                  {columns.find(c => c.id === 'status')?.options?.filter(o => !['Installed', 'Spare', 'Returned'].includes(o)).map(status => (<button key={status} onClick={() => handleQuickStatusUpdate(status)} className="p-3 rounded-lg border border-slate-700 bg-slate-800/50 text-slate-300 hover:bg-slate-700 text-left text-sm">{status}</button>))}
+                  {columns.find(c => c.id === 'status')?.options?.filter(o => !['Installed', 'Spare', 'Returned'].includes(o)).map(status => (<button key={status} onClick={() => handleQuickStatusUpdate(status)} className="p-3 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800/50 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 text-left text-sm">{status}</button>))}
               </div>
               <button onClick={() => setStatusModalItem(null)} className="mt-6 w-full py-2 text-slate-400 hover:text-white text-sm">Cancel</button>
           </div>
@@ -1287,23 +1437,23 @@ create policy "Public Config Access" on app_config for all using (true) with che
       {showAddModal && canEdit && (
         <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="glass-panel p-6 rounded-2xl w-full max-w-2xl max-h-[90vh] flex flex-col border border-indigo-500/30 shadow-[0_0_50px_rgba(99,102,241,0.2)]">
-             <div className="flex justify-between items-center mb-6 border-b border-slate-700 pb-4 shrink-0"><h2 className="text-xl font-display font-bold text-white flex items-center gap-2"><Plus className="text-indigo-400" /> New Asset Entry</h2><button onClick={() => setShowAddModal(false)} className="text-slate-400 hover:text-white"><X /></button></div>
+             <div className="flex justify-between items-center mb-6 border-b border-slate-300 dark:border-slate-700 pb-4 shrink-0"><h2 className="text-xl font-display font-bold text-slate-900 dark:text-white flex items-center gap-2"><Plus className="text-indigo-500 dark:text-indigo-400" /> New Asset Entry</h2><button onClick={() => setShowAddModal(false)} className="text-slate-400 hover:text-slate-800 dark:hover:text-white"><X /></button></div>
              <form onSubmit={handleAddItem} className="flex-1 overflow-y-auto pr-2">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                  {columns.map(col => (
                    <div key={col.id} className={col.type === 'textarea' ? 'md:col-span-2' : ''}>
                       <label className="block text-xs uppercase text-slate-500 font-bold mb-1">{col.label}</label>
                       {col.type === 'select' ? (
-                        <select className="w-full bg-slate-800/50 border border-slate-600 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-indigo-400 appearance-none" value={formData[col.id] || ''} onChange={e => handleInputChange(col.id, e.target.value)}><option value="">Select {col.label}...</option>{col.options?.map(opt => (<option key={opt} value={opt}>{opt}</option>))}</select>
+                        <select className="w-full bg-[var(--input-bg)] border border-slate-300 dark:border-slate-600 rounded-lg px-4 py-2 text-slate-900 dark:text-white focus:outline-none focus:border-indigo-400 appearance-none" value={formData[col.id] || ''} onChange={e => handleInputChange(col.id, e.target.value)}><option value="">Select {col.label}...</option>{col.options?.map(opt => (<option key={opt} value={opt}>{opt}</option>))}</select>
                       ) : col.type === 'textarea' ? (
-                        <textarea rows={3} className="w-full bg-slate-800/50 border border-slate-600 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-indigo-400" value={formData[col.id] || ''} onChange={e => handleInputChange(col.id, e.target.value)} />
+                        <textarea rows={3} className="w-full bg-[var(--input-bg)] border border-slate-300 dark:border-slate-600 rounded-lg px-4 py-2 text-slate-900 dark:text-white focus:outline-none focus:border-indigo-400" value={formData[col.id] || ''} onChange={e => handleInputChange(col.id, e.target.value)} />
                       ) : (
-                        <input type={col.type === 'date' ? 'date' : col.type === 'number' ? 'number' : 'text'} className="w-full bg-slate-800/50 border border-slate-600 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-indigo-400" value={formData[col.id] || ''} onChange={e => handleInputChange(col.id, e.target.value)} placeholder={`Enter ${col.label}`} />
+                        <input type={col.type === 'date' ? 'date' : col.type === 'number' ? 'number' : 'text'} className="w-full bg-[var(--input-bg)] border border-slate-300 dark:border-slate-600 rounded-lg px-4 py-2 text-slate-900 dark:text-white focus:outline-none focus:border-indigo-400" value={formData[col.id] || ''} onChange={e => handleInputChange(col.id, e.target.value)} placeholder={`Enter ${col.label}`} />
                       )}
                    </div>
                  ))}
               </div>
-              <div className="flex gap-3 pt-6 mt-4 border-t border-slate-700 sticky bottom-0 bg-slate-900/0"><button type="button" onClick={() => setShowAddModal(false)} className="flex-1 px-4 py-2 rounded-lg border border-slate-600 text-slate-300 hover:bg-slate-700 transition-colors">Cancel</button><button type="submit" className="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-lg font-medium transition-all shadow-[0_0_15px_rgba(99,102,241,0.3)]">Save Record</button></div>
+              <div className="flex gap-3 pt-6 mt-4 border-t border-slate-300 dark:border-slate-700 sticky bottom-0 bg-slate-900/0"><button type="button" onClick={() => setShowAddModal(false)} className="flex-1 px-4 py-2 rounded-lg border border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors">Cancel</button><button type="submit" className="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-lg font-medium transition-all shadow-[0_0_15px_rgba(99,102,241,0.3)]">Save Record</button></div>
             </form>
           </div>
         </div>
@@ -1311,14 +1461,14 @@ create policy "Public Config Access" on app_config for all using (true) with che
 
       {/* Chat Interface */}
       <div className={`fixed bottom-0 right-0 w-full md:w-[450px] h-[600px] transition-transform duration-500 transform ${isChatOpen ? 'translate-y-0' : 'translate-y-[110%]'} z-40 p-4`}>
-        <div className="glass-panel w-full h-full rounded-2xl flex flex-col shadow-2xl border border-indigo-500/30 relative overflow-hidden bg-slate-900/90">
-          <div className="p-4 bg-slate-800/80 border-b border-slate-700 flex justify-between items-center backdrop-blur-md"><div className="flex items-center gap-2"><Bot className="w-5 h-5 text-indigo-400" /><span className="font-display font-bold text-sm tracking-wider">LOGISTICS<span className="text-indigo-400">DROID</span></span></div><button onClick={() => setIsChatOpen(false)} className="text-slate-400 hover:text-white"><X className="w-4 h-4" /></button></div>
+        <div className="glass-panel w-full h-full rounded-2xl flex flex-col shadow-2xl border border-indigo-500/30 relative overflow-hidden bg-white/95 dark:bg-slate-900/90">
+          <div className="p-4 bg-slate-100/80 dark:bg-slate-800/80 border-b border-slate-300 dark:border-slate-700 flex justify-between items-center backdrop-blur-md"><div className="flex items-center gap-2"><Bot className="w-5 h-5 text-indigo-500 dark:text-indigo-400" /><span className="font-display font-bold text-sm tracking-wider text-slate-800 dark:text-slate-200">LOGISTICS<span className="text-indigo-500 dark:text-indigo-400">DROID</span></span></div><button onClick={() => setIsChatOpen(false)} className="text-slate-400 hover:text-slate-800 dark:hover:text-white"><X className="w-4 h-4" /></button></div>
           <div className="flex-1 overflow-y-auto p-4 space-y-4 scrollbar-thin">
-            {messages.map((msg, i) => (<div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}><div className={`max-w-[85%] p-3 rounded-xl text-sm leading-relaxed ${msg.role === 'user' ? 'bg-indigo-600 text-white rounded-br-none shadow-lg' : 'bg-slate-700/50 text-slate-200 rounded-bl-none border border-slate-600'}`}>{msg.text}</div></div>))}
-            {isThinking && (<div className="flex justify-start"><div className="bg-slate-700/50 p-3 rounded-lg rounded-bl-none flex gap-1 items-center"><div className="w-1.5 h-1.5 bg-indigo-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} /><div className="w-1.5 h-1.5 bg-indigo-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} /><div className="w-1.5 h-1.5 bg-indigo-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} /></div></div>)}
+            {messages.map((msg, i) => (<div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}><div className={`max-w-[85%] p-3 rounded-xl text-sm leading-relaxed ${msg.role === 'user' ? 'bg-indigo-600 text-white rounded-br-none shadow-lg' : 'bg-slate-200 dark:bg-slate-700/50 text-slate-800 dark:text-slate-200 rounded-bl-none border border-slate-300 dark:border-slate-600'}`}>{msg.text}</div></div>))}
+            {isThinking && (<div className="flex justify-start"><div className="bg-slate-200 dark:bg-slate-700/50 p-3 rounded-lg rounded-bl-none flex gap-1 items-center"><div className="w-1.5 h-1.5 bg-indigo-500 dark:bg-indigo-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} /><div className="w-1.5 h-1.5 bg-indigo-500 dark:bg-indigo-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} /><div className="w-1.5 h-1.5 bg-indigo-500 dark:bg-indigo-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} /></div></div>)}
             <div ref={chatEndRef} />
           </div>
-          <div className="p-3 bg-slate-800/80 border-t border-slate-700 backdrop-blur-md"><div className="flex gap-2"><input type="text" value={inputMessage} onChange={(e) => setInputMessage(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleSendMessage()} placeholder="Ask about stock, engineers, or locations..." className="flex-1 bg-slate-900/50 border border-slate-600 rounded-lg px-4 py-2.5 text-sm text-white focus:outline-none focus:border-indigo-400 placeholder-slate-500" /><button onClick={handleSendMessage} disabled={!inputMessage.trim() || isThinking} className="p-2.5 bg-indigo-600 hover:bg-indigo-500 rounded-lg text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-lg"><Send className="w-4 h-4" /></button></div></div>
+          <div className="p-3 bg-slate-100/80 dark:bg-slate-800/80 border-t border-slate-300 dark:border-slate-700 backdrop-blur-md"><div className="flex gap-2"><input type="text" value={inputMessage} onChange={(e) => setInputMessage(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleSendMessage()} placeholder="Ask about stock, engineers, or locations..." className="flex-1 bg-[var(--input-bg)] border border-slate-300 dark:border-slate-600 rounded-lg px-4 py-2.5 text-sm text-slate-900 dark:text-white focus:outline-none focus:border-indigo-400 placeholder-slate-400" /><button onClick={handleSendMessage} disabled={!inputMessage.trim() || isThinking} className="p-2.5 bg-indigo-600 hover:bg-indigo-500 rounded-lg text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-lg"><Send className="w-4 h-4" /></button></div></div>
         </div>
       </div>
     </div>
