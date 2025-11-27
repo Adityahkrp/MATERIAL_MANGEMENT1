@@ -64,9 +64,9 @@ import {
 
 // --- Configuration ---
 // REPLACE THESE VALUES TO MAKE CONNECTION PERMANENT ACROSS DEVICES
-const HARDCODED_SUPABASE_URL = ""; 
-const HARDCODED_SUPABASE_KEY = ""; 
-const HARDCODED_GEMINI_API_KEY = ""; // PASTE YOUR GEMINI API KEY HERE
+const HARDCODED_SUPABASE_URL = "https://wtbdeqfvkfeekmrdkyta.supabase.co"; 
+const HARDCODED_SUPABASE_KEY = "sb_publishable_cWz6SwU8UzwlBCrH6HDGNQ__4-eOweD"; 
+const HARDCODED_GEMINI_API_KEY = "AIzaSyDQX6FH_I1VYXNvd0-V7lIj9pOxIPxA8GI"; // PASTE YOUR GEMINI API KEY HERE
 
 // --- Types ---
 type AssetStatus = 'Installed' | 'Spare' | 'Planned' | 'Defective' | 'Maintenance' | 'Returned' | 'Unknown';
